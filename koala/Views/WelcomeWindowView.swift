@@ -19,12 +19,21 @@ struct WelcomeWindowView: View {
         HStack(spacing: 0) {
             sidebar
                 .frame(width: 240)
+                .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
             Divider().opacity(0.4)
             projectsList
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 880, minHeight: 560)
-        .background(VisualEffectView(material: .underWindowBackground))
+        .frame(width: 880, height: 560)
+        .background(
+            WindowConfigurator(
+                hideMinimize: true,
+                hideZoom: true,
+                resizable: false,
+                minSize: NSSize(width: 880, height: 560),
+                maxSize: NSSize(width: 880, height: 560)
+            )
+        )
         .sheet(isPresented: $showCreateSheet) {
             ProjectFormSheet(
                 title: "New Project",

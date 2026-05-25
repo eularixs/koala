@@ -30,6 +30,15 @@ struct MainWindowView: View {
             MainDetailRouter()
                 .navigationSplitViewColumnWidth(min: 480, ideal: 720)
         }
+        .background(
+            WindowConfigurator(
+                hideMinimize: false,
+                hideZoom: false,
+                resizable: true,
+                minSize: NSSize(width: 960, height: 600),
+                maxSize: nil
+            )
+        )
         .navigationTitle("")
         .toolbar {
             ToolbarItem(placement: .navigation) {
