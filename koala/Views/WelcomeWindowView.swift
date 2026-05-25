@@ -14,6 +14,9 @@ struct WelcomeWindowView: View {
     @State private var showImportError = false
     @State private var showSettings = false
     @State private var search = ""
+    @State private var collapsedGroups: Set<String> = []
+    @State private var showNewGroupAlert = false
+    @State private var newGroupName = ""
 
     var body: some View {
         HStack(spacing: 0) {
@@ -133,52 +136,120 @@ struct WelcomeWindowView: View {
 
     private var projectsList: some View {
         VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                TextField("", text: $search, prompt: Text("Search projects..."))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 240)
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 38)
-            .padding(.bottom, 8)
+            actionToolbar
+                .padding(.horizontal, 14)
+                .padding(.top, 32)
+                .padding(.bottom, 10)
 
             if appState.projects.isEmpty {
                 emptyState
             } else {
-                List {
-                    ForEach(groupedFiltered, id: \.0) { groupName, members in
-                        Section(header: groupHeader(groupName, count: members.count)) {
-                            ForEach(members) { project in
-                                ProjectRow(project: project) {
-                                    openProject(project)
-                                } onEdit: {
-                                    editingProject = project
-                                } onDelete: {
-                                    appState.deleteProject(project.id)
-                                }
-                            }
+                ScrollView {
+                    LazyVStack(spacing: 4, pinnedViews: []) {
+                        ForEach(groupedFiltered, id: \.0) { groupName, members in
+                            groupSection(groupName: groupName, members: members)
                         }
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 12)
                 }
-                .listStyle(.inset)
-                .scrollContentBackground(.hidden)
+            }
+        }
+        .alert("New Group", isPresented: $showNewGroupAlert) {
+            TextField("Group name", text: $newGroupName)
+            Button("Create") {
+                let g = newGroupName.trimmingCharacters(in: .whitespaces)
+                if !g.isEmpty { collapsedGroups.remove(g) }
+                newGroupName = ""
+            }
+            Button("Cancel", role: .cancel) { newGroupName = "" }
+        } message: {
+            Text("Groups become visible when you assign a project to them via Edit.")
+        }
+    }
+
+    private var actionToolbar: some View {
+        HStack(spacing: 8) {
+            Button {
+                showCreateSheet = true
+            } label: {
+                Image(systemName: "plus")
+                    .frame(width: 22, height: 22)
+            }
+            .help("New project")
+
+            Button {
+                newGroupName = ""
+                showNewGroupAlert = true
+            } label: {
+                Image(systemName: "folder.badge.plus")
+                    .frame(width: 22, height: 22)
+            }
+            .help("New group")
+
+            Spacer()
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                TextField("", text: $search, prompt: Text("Search projects..."))
+                    .textFieldStyle(.plain)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
+            .frame(maxWidth: 260)
+        }
+    }
+
+    @ViewBuilder
+    private func groupSection(groupName: String, members: [Project]) -> some View {
+        let isCollapsed = collapsedGroups.contains(groupName)
+        VStack(spacing: 2) {
+            Button {
+                if isCollapsed { collapsedGroups.remove(groupName) }
+                else { collapsedGroups.insert(groupName) }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                    Circle()
+                        .fill(groupColor(for: members))
+                        .frame(width: 8, height: 8)
+                    Text(groupName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("\(members.count)")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+
+            if !isCollapsed {
+                ForEach(members) { project in
+                    ProjectRow(project: project) {
+                        openProject(project)
+                    } onEdit: {
+                        editingProject = project
+                    } onDelete: {
+                        appState.deleteProject(project.id)
+                    }
+                }
             }
         }
     }
 
-    private func groupHeader(_ name: String, count: Int) -> some View {
-        HStack(spacing: 6) {
-            Text(name)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text("\(count)")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 5)
-                .background(.secondary.opacity(0.18), in: Capsule())
-            Spacer()
-        }
+    private func groupColor(for members: [Project]) -> Color {
+        if let hex = members.first?.color, let c = Color(hex: hex) { return c }
+        return .secondary.opacity(0.5)
     }
 
     private var groupedFiltered: [(String, [Project])] {

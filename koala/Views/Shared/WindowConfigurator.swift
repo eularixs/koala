@@ -7,6 +7,7 @@ struct WindowConfigurator: NSViewRepresentable {
     var resizable: Bool = true
     var minSize: NSSize? = nil
     var maxSize: NSSize? = nil
+    var transparentTitlebar: Bool = true
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -26,6 +27,15 @@ struct WindowConfigurator: NSViewRepresentable {
             win.styleMask.insert(.resizable)
         } else {
             win.styleMask.remove(.resizable)
+        }
+        if transparentTitlebar {
+            win.titlebarAppearsTransparent = true
+            win.titleVisibility = .hidden
+            win.styleMask.insert(.fullSizeContentView)
+            win.isMovableByWindowBackground = true
+        } else {
+            win.titlebarAppearsTransparent = false
+            win.titleVisibility = .visible
         }
         if let minSize {
             win.minSize = minSize
