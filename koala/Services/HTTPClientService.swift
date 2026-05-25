@@ -255,7 +255,7 @@ final class HTTPClientService: ObservableObject {
         var body = Data()
         let crlf = "\r\n"
 
-        for item in items where !item.key.isEmpty {
+        for item in items where item.isEnabled && !item.key.isEmpty {
             body.append("--\(boundary)\(crlf)".utf8Data)
 
             switch item.type {
@@ -299,7 +299,7 @@ final class HTTPClientService: ObservableObject {
             return "--data-urlencode '\(encoded)'"
         case .multipart(let items):
             let args = items
-                .filter { !$0.key.isEmpty }
+                .filter { $0.isEnabled && !$0.key.isEmpty }
                 .map { item -> String in
                     switch item.type {
                     case .text:

@@ -33,9 +33,46 @@ enum SidebarSection: Hashable, CaseIterable {
 @MainActor
 @Observable
 final class AppState {
-    var collections: [KoalaCollection] = []
-    var environments: [KoalaEnvironment] = []
-    var globalVariables: [KeyValuePair] = []
+    // MARK: Projects
+    var projects: [Project] = []
+    var activeProjectId: UUID? = nil
+
+    var activeProject: Project? {
+        guard let id = activeProjectId else { return nil }
+        return projects.first(where: { $0.id == id })
+    }
+
+    // MARK: Per-project slices (private storage)
+    private var collectionsByProject: [UUID: [KoalaCollection]] = [:]
+    private var environmentsByProject: [UUID: [KoalaEnvironment]] = [:]
+    private var globalsByProject: [UUID: [KeyValuePair]] = [:]
+
+    // MARK: Computed accessors (existing shape preserved)
+    var collections: [KoalaCollection] {
+        get { collectionsByProject[activeProjectId ?? UUID()] ?? [] }
+        set {
+            guard let id = activeProjectId else { return }
+            collectionsByProject[id] = newValue
+        }
+    }
+
+    var environments: [KoalaEnvironment] {
+        get { environmentsByProject[activeProjectId ?? UUID()] ?? [] }
+        set {
+            guard let id = activeProjectId else { return }
+            environmentsByProject[id] = newValue
+        }
+    }
+
+    var globalVariables: [KeyValuePair] {
+        get { globalsByProject[activeProjectId ?? UUID()] ?? [] }
+        set {
+            guard let id = activeProjectId else { return }
+            globalsByProject[id] = newValue
+        }
+    }
+
+    // MARK: Selection State
     var selectedEnvironmentId: UUID? = nil
     var selectedRequestId: UUID? = nil
     var selectedSidebarSection: SidebarSection = .collections
@@ -97,7 +134,8 @@ final class AppState {
     // MARK: Collection CRUD
 
     func addCollection(_ name: String) {
-        collections.append(KoalaCollection(name: name))
+        let projectId = activeProjectId ?? UUID()
+        collections.append(KoalaCollection(projectId: projectId, name: name))
     }
 
     func deleteCollection(_ id: UUID) {
@@ -205,17 +243,101 @@ final class AppState {
         return false
     }
 
+    // MARK: Project Management
+
+    @discardableResult
+    func createProject(name: String) -> Project {
+        let baseSlug = Project.deriveSlug(from: name)
+        let slug = uniqueSlug(baseSlug)
+        let project = Project(name: name, slug: slug)
+        projects.append(project)
+        return project
+    }
+
+    func renameProject(_ id: UUID, to name: String) {
+        guard let i = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[i].name = name
+        projects[i].updatedAt = Date()
+    }
+
+    func setSlug(_ slug: String, for id: UUID) {
+        guard let i = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[i].slug = slug
+        projects[i].updatedAt = Date()
+    }
+
+    func deleteProject(_ id: UUID) {
+        try? persistence.deleteProjectData(id)
+        collectionsByProject.removeValue(forKey: id)
+        environmentsByProject.removeValue(forKey: id)
+        globalsByProject.removeValue(forKey: id)
+        projects.removeAll(where: { $0.id == id })
+        if activeProjectId == id {
+            activeProjectId = projects.first?.id
+        }
+        saveManifest()
+    }
+
+    func switchProject(to id: UUID) {
+        guard projects.contains(where: { $0.id == id }) else { return }
+        if collectionsByProject[id] == nil {
+            loadProjectSlices(id)
+        }
+        activeProjectId = id
+        saveManifest()
+    }
+
     // MARK: Persistence
 
     func loadFromDisk() {
-        collections = (try? persistence.loadCollections()) ?? []
-        environments = (try? persistence.loadEnvironments()) ?? []
-        globalVariables = (try? persistence.loadGlobals()) ?? []
+        let manifest = (try? persistence.loadProjects()) ?? ProjectsManifest()
+
+        if manifest.projects.isEmpty {
+            let slug = uniqueSlug("default")
+            let defaultProject = Project(name: "Default", slug: slug)
+            projects = [defaultProject]
+            activeProjectId = defaultProject.id
+            saveManifest()
+        } else {
+            projects = manifest.projects
+            activeProjectId = manifest.activeProjectId ?? manifest.projects.first?.id
+        }
+
+        if let id = activeProjectId {
+            loadProjectSlices(id)
+        }
     }
 
     func saveToDisk() {
-        try? persistence.saveCollections(collections)
-        try? persistence.saveEnvironments(environments)
-        try? persistence.saveGlobals(globalVariables)
+        saveManifest()
+        saveActiveProject()
+    }
+
+    // MARK: Private Helpers
+
+    private func loadProjectSlices(_ id: UUID) {
+        collectionsByProject[id] = (try? persistence.loadCollections(forProject: id)) ?? []
+        environmentsByProject[id] = (try? persistence.loadEnvironments(forProject: id)) ?? []
+        globalsByProject[id] = (try? persistence.loadGlobals(forProject: id)) ?? []
+    }
+
+    private func saveActiveProject() {
+        guard let id = activeProjectId else { return }
+        try? persistence.saveCollections(collectionsByProject[id] ?? [], forProject: id)
+        try? persistence.saveEnvironments(environmentsByProject[id] ?? [], forProject: id)
+        try? persistence.saveGlobals(globalsByProject[id] ?? [], forProject: id)
+    }
+
+    private func saveManifest() {
+        let manifest = ProjectsManifest(projects: projects, activeProjectId: activeProjectId)
+        try? persistence.saveProjects(manifest)
+    }
+
+    private func uniqueSlug(_ base: String) -> String {
+        let existing = Set(projects.map(\.slug))
+        if !existing.contains(base) { return base }
+        var counter = 2
+        while existing.contains("\(base)-\(counter)") { counter += 1 }
+        return "\(base)-\(counter)"
     }
 }

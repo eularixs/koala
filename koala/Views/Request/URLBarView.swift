@@ -13,6 +13,9 @@ struct URLBarView: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.body, design: .monospaced))
                 .frame(maxWidth: .infinity)
+                .onChange(of: request.url) { _, newValue in
+                    autoParseCurlIfPasted(newValue)
+                }
 
             sendButton
         }
@@ -22,20 +25,39 @@ struct URLBarView: View {
 
     private var sendButton: some View {
         Button(action: onSend) {
-            Group {
+            ZStack {
+                Text("Send")
+                    .opacity(isSending ? 0 : 1)
                 if isSending {
                     ProgressView()
-                        .scaleEffect(0.7)
-                        .frame(width: 16, height: 16)
-                } else {
-                    Text("Send")
+                        .controlSize(.small)
+                        .progressViewStyle(.circular)
+                        .tint(.white)
                 }
             }
+            .frame(width: 56, height: 16)
         }
         .buttonStyle(.borderedProminent)
         .disabled(request.url.trimmingCharacters(in: .whitespaces).isEmpty || isSending)
         .keyboardShortcut(.return, modifiers: .command)
-        .fixedSize()
+    }
+
+    private func autoParseCurlIfPasted(_ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix("curl") else { return }
+        let afterCurl = trimmed.dropFirst(4)
+        guard afterCurl.first == " " || afterCurl.first == "\n" || afterCurl.first == "\\" else { return }
+        guard let parsed = try? CURLParser.parse(trimmed) else { return }
+
+        var newReq = request
+        newReq.method = parsed.method
+        newReq.url = parsed.url
+        newReq.headers = parsed.headers
+        newReq.body = parsed.body
+        newReq.auth = parsed.auth
+        newReq.queryParams = parsed.queryParams
+        newReq.updatedAt = Date()
+        request = newReq
     }
 }
 

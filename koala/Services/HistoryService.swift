@@ -5,16 +5,11 @@ import Observation
 @Observable
 final class HistoryService {
     private static let maxEntries = 500
-    private static let filename = "history.json"
 
     var entries: [HistoryEntry] = []
+    private var activeProjectId: UUID? = nil
 
-    private let fileURL: URL = {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("Koala")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent(HistoryService.filename)
-    }()
+    private let persistence = PersistenceService()
 
     private var encoder: JSONEncoder {
         let e = JSONEncoder()
@@ -26,41 +21,79 @@ final class HistoryService {
         return e
     }
 
-    private let decoder = JSONDecoder()
+    // MARK: - Per-project history
 
-    func record(request: KoalaRequest, response: KoalaResponse?) {
-        let entry = HistoryEntry(requestSnapshot: request, responseSnapshot: response)
+    func loadForProject(_ id: UUID?) {
+        activeProjectId = id
+        guard let id else {
+            entries = []
+            return
+        }
+        entries = (try? persistence.loadHistory(forProject: id)) ?? []
+    }
+
+    func record(request: KoalaRequest, response: KoalaResponse?, projectId: UUID) {
+        let entry = HistoryEntry(projectId: projectId, requestSnapshot: request, responseSnapshot: response)
         entries.insert(entry, at: 0)
         if entries.count > Self.maxEntries {
             entries = Array(entries.prefix(Self.maxEntries))
         }
-        Task { await persistAsync() }
-    }
-
-    func clear() {
-        entries = []
-        Task { await persistAsync() }
-    }
-
-    func remove(_ id: UUID) {
-        entries.removeAll(where: { $0.id == id })
-        Task { await persistAsync() }
-    }
-
-    func load() {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
-        guard let data = try? Data(contentsOf: fileURL),
-              let loaded = try? decoder.decode([HistoryEntry].self, from: data) else { return }
-        entries = loaded
-    }
-
-    private func persistAsync() async {
         let snapshot = entries
-        let url = fileURL
+        let pid = projectId
+        let ps = persistence
         let enc = encoder
+        Task {
+            await persistAsync(snapshot, projectId: pid, persistence: ps, encoder: enc)
+        }
+    }
+
+    func clear(projectId: UUID) {
+        entries = []
+        let ps = persistence
+        let enc = encoder
+        Task {
+            await persistAsync([], projectId: projectId, persistence: ps, encoder: enc)
+        }
+    }
+
+    func remove(_ id: UUID, projectId: UUID) {
+        entries.removeAll(where: { $0.id == id })
+        let snapshot = entries
+        let ps = persistence
+        let enc = encoder
+        Task {
+            await persistAsync(snapshot, projectId: projectId, persistence: ps, encoder: enc)
+        }
+    }
+
+    /// Convenience: clear history for the currently active project.
+    func clear() {
+        guard let id = activeProjectId else { entries = []; return }
+        clear(projectId: id)
+    }
+
+    /// Convenience: remove a history entry for the currently active project.
+    func remove(_ id: UUID) {
+        guard let pid = activeProjectId else {
+            entries.removeAll(where: { $0.id == id })
+            return
+        }
+        remove(id, projectId: pid)
+    }
+
+    /// Legacy no-arg load — no-op after migration; use loadForProject instead.
+    func load() {}
+
+    // MARK: - Private
+
+    private func persistAsync(
+        _ snapshot: [HistoryEntry],
+        projectId: UUID,
+        persistence: PersistenceService,
+        encoder: JSONEncoder
+    ) async {
         await Task.detached(priority: .background) {
-            guard let data = try? enc.encode(snapshot) else { return }
-            try? data.write(to: url, options: .atomicWrite)
+            try? persistence.saveHistory(snapshot, forProject: projectId)
         }.value
     }
 }

@@ -123,4 +123,68 @@ final class CURLParserTests: XCTestCase {
         let req = try CURLParser.parse(input)
         XCTAssertEqual(req.method.rawValue, "POST")
     }
+
+    // MARK: - ANSI-C quoting ($'...') tests
+
+    // 11. $'...' with \! escape decodes to literal '!'
+    func test_ansiC_exclamationMark() throws {
+        // The Swift string below presents the parser with:
+        //   --data-raw $'{"email":"x@x","password":"StrongPass\!"}'
+        // where \! inside $'...' must decode to '!'
+        let input = #"curl -X POST https://api.example.com/login --data-raw $'{"email":"x@x","password":"StrongPass\!"}'  "#
+        let req = try CURLParser.parse(input)
+        XCTAssertEqual(req.method.rawValue, "POST")
+        switch req.body {
+        case .json(let body):
+            XCTAssertTrue(body.contains("StrongPass!"), "Body should contain literal '!'")
+        case .raw(let body, _):
+            XCTAssertTrue(body.contains("StrongPass!"), "Body should contain literal '!'")
+        default:
+            XCTFail("Expected json or raw body, got \(req.body)")
+        }
+    }
+
+    // 12. $'...' with \n escape — body has actual newline character
+    func test_ansiC_newlineEscape() throws {
+        let input = "curl -X POST https://example.com/data --data-raw $'line1\\nline2'"
+        let req = try CURLParser.parse(input)
+        switch req.body {
+        case .raw(let body, _):
+            XCTAssertTrue(body.contains("\n"), "Body should contain actual newline")
+            XCTAssertTrue(body.contains("line1"))
+            XCTAssertTrue(body.contains("line2"))
+        default:
+            XCTFail("Expected raw body, got \(req.body)")
+        }
+    }
+
+    // 13. $'...' with \t escape — body has actual tab character
+    func test_ansiC_tabEscape() throws {
+        let input = "curl -X POST https://example.com/data --data-raw $'tab\\there'"
+        let req = try CURLParser.parse(input)
+        switch req.body {
+        case .raw(let body, _):
+            XCTAssertTrue(body.contains("\t"), "Body should contain actual tab")
+            XCTAssertTrue(body.contains("tab"))
+            XCTAssertTrue(body.contains("here"))
+        default:
+            XCTFail("Expected raw body, got \(req.body)")
+        }
+    }
+
+    // 14. Mixed normal single-quoted header and $'...' body in same command
+    func test_ansiC_mixedWithNormalQuotes() throws {
+        let input = "curl -X POST https://api.example.com/upload -H 'x: y' --data-raw $'hello\\nworld'"
+        let req = try CURLParser.parse(input)
+        XCTAssertEqual(req.method.rawValue, "POST")
+        let xHeader = req.headers.first(where: { $0.key == "x" })
+        XCTAssertNotNil(xHeader, "Should have header 'x'")
+        XCTAssertEqual(xHeader?.value, "y")
+        switch req.body {
+        case .raw(let body, _):
+            XCTAssertTrue(body.contains("\n"), "Body should contain actual newline from $'...'")
+        default:
+            XCTFail("Expected raw body, got \(req.body)")
+        }
+    }
 }

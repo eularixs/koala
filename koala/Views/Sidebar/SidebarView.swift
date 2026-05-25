@@ -8,6 +8,10 @@ struct SidebarView: View {
     var body: some View {
         @Bindable var state = appState
         VStack(spacing: 0) {
+            ProjectSwitcherView()
+
+            Divider()
+
             Picker("Section", selection: $state.selectedSidebarSection) {
                 ForEach(SidebarSection.allCases, id: \.self) { section in
                     Label(section.label, systemImage: section.systemImage)

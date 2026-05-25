@@ -114,11 +114,14 @@ struct JSONViewerView: View {
     @ViewBuilder
     private var treeView: some View {
         if let node {
-            ScrollView([.vertical, .horizontal]) {
-                JSONNodeView(node: node, depth: 0)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView(.vertical) {
+                HStack(spacing: 0) {
+                    JSONNodeView(node: node, depth: 0)
+                        .padding(8)
+                    Spacer(minLength: 0)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else {
             rawView
         }

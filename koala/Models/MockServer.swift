@@ -93,6 +93,7 @@ struct MockEndpoint: Identifiable, Codable, Hashable {
 
 struct MockServer: Identifiable, Codable, Hashable {
     var id: UUID
+    var projectId: UUID
     var name: String
     var vercelProjectId: String
     var deploymentURL: String
@@ -102,6 +103,7 @@ struct MockServer: Identifiable, Codable, Hashable {
 
     init(
         id: UUID = UUID(),
+        projectId: UUID = UUID(),
         name: String = "New Mock Server",
         vercelProjectId: String = "",
         deploymentURL: String = "",
@@ -110,12 +112,26 @@ struct MockServer: Identifiable, Codable, Hashable {
         createdAt: Date = Date()
     ) {
         self.id = id
+        self.projectId = projectId
         self.name = name
         self.vercelProjectId = vercelProjectId
         self.deploymentURL = deploymentURL
         self.endpoints = endpoints
         self.status = status
         self.createdAt = createdAt
+    }
+
+    // MARK: Backwards-compatible decode (missing projectId -> zero UUID)
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        projectId = (try? c.decodeIfPresent(UUID.self, forKey: .projectId)) ?? UUID()
+        name = try c.decode(String.self, forKey: .name)
+        vercelProjectId = (try? c.decode(String.self, forKey: .vercelProjectId)) ?? ""
+        deploymentURL = (try? c.decode(String.self, forKey: .deploymentURL)) ?? ""
+        endpoints = (try? c.decode([MockEndpoint].self, forKey: .endpoints)) ?? []
+        status = (try? c.decode(MockServerStatus.self, forKey: .status)) ?? .notDeployed
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
     }
 
     static var empty: MockServer { MockServer() }

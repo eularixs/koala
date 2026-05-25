@@ -89,6 +89,7 @@ enum CollectionItem: Codable, Hashable {
 
 struct KoalaCollection: Identifiable, Codable, Hashable {
     var id: UUID
+    var projectId: UUID
     var name: String
     var color: String?
     var items: [CollectionItem]
@@ -97,6 +98,7 @@ struct KoalaCollection: Identifiable, Codable, Hashable {
 
     init(
         id: UUID = UUID(),
+        projectId: UUID = UUID(),
         name: String = "New Collection",
         color: String? = nil,
         items: [CollectionItem] = [],
@@ -104,11 +106,24 @@ struct KoalaCollection: Identifiable, Codable, Hashable {
         variables: [KeyValuePair] = []
     ) {
         self.id = id
+        self.projectId = projectId
         self.name = name
         self.color = color
         self.items = items
         self.auth = auth
         self.variables = variables
+    }
+
+    // MARK: Backwards-compatible decode (missing projectId -> zero UUID)
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        projectId = (try? c.decodeIfPresent(UUID.self, forKey: .projectId)) ?? UUID()
+        name = try c.decode(String.self, forKey: .name)
+        color = try c.decodeIfPresent(String.self, forKey: .color)
+        items = (try? c.decode([CollectionItem].self, forKey: .items)) ?? []
+        auth = try c.decodeIfPresent(AuthConfig.self, forKey: .auth)
+        variables = (try? c.decode([KeyValuePair].self, forKey: .variables)) ?? []
     }
 
     static var empty: KoalaCollection { KoalaCollection() }

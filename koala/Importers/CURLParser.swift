@@ -19,7 +19,8 @@ final class CURLParser {
 
     // MARK: - Tokenizer
 
-    /// Split the input into shell-like tokens, respecting single/double quotes and `\"` escapes inside double quotes.
+    /// Split the input into shell-like tokens, respecting single/double quotes,
+    /// `\"` escapes inside double quotes, and bash ANSI-C `$'...'` quoting.
     private static func tokenize(_ input: String) -> [String] {
         var tokens: [String] = []
         var current = ""
@@ -29,6 +30,19 @@ final class CURLParser {
 
         while i < input.endIndex {
             let ch = input[i]
+
+            // Detect $'...' ANSI-C quoting
+            if ch == "$" && !inSingle && !inDouble {
+                let next = input.index(after: i)
+                if next < input.endIndex && input[next] == "'" {
+                    // Consume the $' prefix and decode the ANSI-C string
+                    let afterPrefix = input.index(after: next)
+                    let (decoded, end) = decodeAnsiCString(input, from: afterPrefix)
+                    current.append(contentsOf: decoded)
+                    i = end
+                    continue
+                }
+            }
 
             if ch == "\\" && inDouble {
                 let next = input.index(after: i)
@@ -53,6 +67,77 @@ final class CURLParser {
         }
         if !current.isEmpty { tokens.append(current) }
         return tokens
+    }
+
+    /// Decode a bash ANSI-C quoted string starting at `start` (after the `$'` prefix).
+    /// Returns the decoded string content and the index just past the closing `'`.
+    private static func decodeAnsiCString(_ input: String, from start: String.Index) -> (String, String.Index) {
+        var result = ""
+        var i = start
+
+        while i < input.endIndex {
+            let ch = input[i]
+
+            if ch == "'" {
+                // End of ANSI-C string; advance past closing quote
+                i = input.index(after: i)
+                break
+            }
+
+            if ch == "\\" {
+                let next = input.index(after: i)
+                guard next < input.endIndex else { i = next; break }
+                let escaped = input[next]
+                switch escaped {
+                case "n":  result.append("\n"); i = input.index(after: next)
+                case "t":  result.append("\t"); i = input.index(after: next)
+                case "r":  result.append("\r"); i = input.index(after: next)
+                case "\\":  result.append("\\"); i = input.index(after: next)
+                case "'":  result.append("'"); i = input.index(after: next)
+                case "\"": result.append("\""); i = input.index(after: next)
+                case "!":  result.append("!"); i = input.index(after: next)
+                case "0":  result.append("\0"); i = input.index(after: next)
+                case "x":
+                    let hexStart = input.index(after: next)
+                    i = appendHexByte(&result, input, from: hexStart, digits: 2)
+                case "u":
+                    let hexStart = input.index(after: next)
+                    i = appendUnicodeCodepoint(&result, input, from: hexStart, digits: 4)
+                default:
+                    result.append(escaped)
+                    i = input.index(after: next)
+                }
+            } else {
+                result.append(ch)
+                i = input.index(after: i)
+            }
+        }
+        return (result, i)
+    }
+
+    /// Read up to `digits` hex characters from `input` at `start`, append the byte/codepoint to `result`.
+    private static func appendHexByte(
+        _ result: inout String, _ input: String, from start: String.Index, digits: Int
+    ) -> String.Index {
+        var i = start
+        var hexStr = ""
+        for _ in 0..<digits {
+            guard i < input.endIndex, input[i].isHexDigit else { break }
+            hexStr.append(input[i])
+            i = input.index(after: i)
+        }
+        if let value = UInt32(hexStr, radix: 16),
+           let scalar = Unicode.Scalar(value) {
+            result.append(Character(scalar))
+        }
+        return i
+    }
+
+    /// Read up to `digits` hex characters for a unicode codepoint.
+    private static func appendUnicodeCodepoint(
+        _ result: inout String, _ input: String, from start: String.Index, digits: Int
+    ) -> String.Index {
+        return appendHexByte(&result, input, from: start, digits: digits)
     }
 
     // MARK: - Request builder

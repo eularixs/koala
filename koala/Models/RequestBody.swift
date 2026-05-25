@@ -16,19 +16,22 @@ struct MultipartItem: Identifiable, Codable, Hashable {
     var value: String
     var type: MultipartItemType
     var fileURL: URL?
+    var isEnabled: Bool
 
     init(
         id: UUID = UUID(),
         key: String = "",
         value: String = "",
         type: MultipartItemType = .text,
-        fileURL: URL? = nil
+        fileURL: URL? = nil,
+        isEnabled: Bool = true
     ) {
         self.id = id
         self.key = key
         self.value = value
         self.type = type
         self.fileURL = fileURL
+        self.isEnabled = isEnabled
     }
 
     static var empty: MultipartItem { MultipartItem() }

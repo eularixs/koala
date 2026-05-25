@@ -52,22 +52,9 @@ struct CodeEditorView: View {
     }
 
     private var editorArea: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $text)
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .frame(minHeight: minHeight)
-
-            if text.isEmpty {
-                Text("Enter \(language.uppercased()) here...")
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .padding(.top, 8)
-                    .padding(.leading, 5)
-                    .allowsHitTesting(false)
-            }
-        }
-        .padding(4)
+        CodeTextView(text: $text)
+            .frame(minHeight: minHeight)
+            .padding(4)
     }
 
     private func formatJSON() {

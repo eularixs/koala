@@ -118,72 +118,21 @@ struct BodyEditorView: View {
 
     @ViewBuilder
     private func multipartEditor(items: [MultipartItem]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                MultipartRowView(
-                    item: itemBinding(index: index),
-                    onDelete: { deleteMultipartItem(at: index) },
-                    onPickFile: { multipartFilePickerIndex = index; showFilePicker = true }
-                )
-            }
-
-            Button {
-                appendMultipartItem()
-            } label: {
-                Label("Add Field", systemImage: "plus")
-                    .font(.caption)
-                    .foregroundStyle(Color.accentColor)
-            }
-            .buttonStyle(.plain)
-        }
-        .fileImporter(
-            isPresented: $showFilePicker,
-            allowedContentTypes: [.data]
-        ) { result in
-            handleMultipartFilePick(result: result)
-        }
-    }
-
-    private func itemBinding(index: Int) -> Binding<MultipartItem> {
-        Binding<MultipartItem>(
-            get: {
-                if case .multipart(let items) = request.body, items.indices.contains(index) {
-                    return items[index]
-                }
-                return MultipartItem.empty
-            },
-            set: { newItem in
-                if case .multipart(var items) = request.body, items.indices.contains(index) {
-                    items[index] = newItem
-                    request.body = .multipart(items)
-                }
-            }
+        MultipartTableView(
+            items: multipartBinding,
+            showFilePicker: $showFilePicker,
+            filePickerIndex: $multipartFilePickerIndex
         )
     }
 
-    private func appendMultipartItem() {
-        if case .multipart(var items) = request.body {
-            items.append(MultipartItem())
-            request.body = .multipart(items)
-        }
-    }
-
-    private func deleteMultipartItem(at index: Int) {
-        if case .multipart(var items) = request.body {
-            items.remove(at: index)
-            request.body = .multipart(items)
-        }
-    }
-
-    private func handleMultipartFilePick(result: Result<URL, Error>) {
-        guard let idx = multipartFilePickerIndex,
-              case .success(let url) = result,
-              case .multipart(var items) = request.body,
-              items.indices.contains(idx) else { return }
-        items[idx].fileURL = url
-        items[idx].type = .file
-        request.body = .multipart(items)
-        multipartFilePickerIndex = nil
+    private var multipartBinding: Binding<[MultipartItem]> {
+        Binding<[MultipartItem]>(
+            get: {
+                if case .multipart(let items) = request.body { return items }
+                return []
+            },
+            set: { request.body = .multipart($0) }
+        )
     }
 
     // MARK: - Raw
@@ -309,52 +258,185 @@ struct BodyEditorView: View {
     }
 }
 
+// MARK: - MultipartTableView
+
+private struct MultipartTableView: View {
+    @Binding var items: [MultipartItem]
+    @Binding var showFilePicker: Bool
+    @Binding var filePickerIndex: Int?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            headerRow
+            Divider()
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                MultipartRowView(
+                    item: rowBinding(index: index),
+                    onDelete: { deleteItem(at: index) },
+                    onPickFile: { filePickerIndex = index; showFilePicker = true },
+                    onKeyChange: { handleKeyChange(for: item) }
+                )
+                Divider().padding(.leading, 8)
+            }
+            addButton
+        }
+        .background(.background)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+        )
+        .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.data]) { result in
+            handleFilePick(result: result)
+        }
+    }
+
+    private var headerRow: some View {
+        HStack(spacing: 0) {
+            Text("").frame(width: 24)
+            Spacer().frame(width: 8)
+            Text("Key").frame(maxWidth: .infinity, alignment: .leading)
+            Divider().frame(height: 16)
+            Text("Value").frame(maxWidth: .infinity, alignment: .leading)
+            Divider().frame(height: 16)
+            Text("Type").frame(width: 60, alignment: .leading)
+            Spacer().frame(width: 28)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.secondary.opacity(0.05))
+    }
+
+    private var addButton: some View {
+        Button {
+            items.append(MultipartItem())
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "plus")
+                Text("Add")
+            }
+            .font(.caption)
+            .foregroundStyle(Color.accentColor)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func rowBinding(index: Int) -> Binding<MultipartItem> {
+        Binding<MultipartItem>(
+            get: { items.indices.contains(index) ? items[index] : .empty },
+            set: { if items.indices.contains(index) { items[index] = $0 } }
+        )
+    }
+
+    private func deleteItem(at index: Int) {
+        items.remove(at: index)
+    }
+
+    private func handleKeyChange(for item: MultipartItem) {
+        guard let last = items.last, last.id == item.id, !item.key.isEmpty else { return }
+        items.append(MultipartItem())
+    }
+
+    private func handleFilePick(result: Result<URL, Error>) {
+        guard let idx = filePickerIndex,
+              case .success(let url) = result,
+              items.indices.contains(idx) else { return }
+        items[idx].fileURL = url
+        items[idx].type = .file
+        filePickerIndex = nil
+    }
+}
+
 // MARK: - MultipartRowView
 
 private struct MultipartRowView: View {
     @Binding var item: MultipartItem
     let onDelete: () -> Void
     let onPickFile: () -> Void
+    let onKeyChange: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 0) {
+            Toggle("", isOn: $item.isEnabled)
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+                .frame(width: 24)
+
+            Spacer().frame(width: 8)
+
             TextField("Key", text: $item.key)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .onChange(of: item.key) { _, _ in onKeyChange() }
+
+            Divider().frame(height: 20)
+
+            valueCell
                 .frame(maxWidth: .infinity)
 
-            Picker("Type", selection: $item.type) {
-                ForEach(MultipartItemType.allCases) { t in
-                    Text(t.displayName).tag(t)
-                }
-            }
-            .labelsHidden()
-            .fixedSize()
+            Divider().frame(height: 20)
 
-            if item.type == .text {
-                TextField("Value", text: $item.value)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity)
-            } else {
-                Button(action: onPickFile) {
-                    Label(
-                        item.fileURL?.lastPathComponent ?? "Choose...",
-                        systemImage: "doc"
-                    )
+            typePicker
+                .frame(width: 60)
+
+            deleteButton.frame(width: 28)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .opacity(item.isEnabled ? 1.0 : 0.5)
+    }
+
+    @ViewBuilder
+    private var valueCell: some View {
+        if item.type == .text {
+            TextField("Value", text: $item.value)
+                .textFieldStyle(.plain)
+        } else {
+            Button(action: onPickFile) {
+                Text(item.fileURL?.lastPathComponent ?? "Choose file...")
                     .font(.caption)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                }
-                .buttonStyle(.bordered)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            Button(action: onDelete) {
-                Image(systemName: "trash")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(item.fileURL == nil ? .secondary : .primary)
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var typePicker: some View {
+        Menu {
+            ForEach(MultipartItemType.allCases) { t in
+                Button(t.displayName) { switchType(to: t) }
+            }
+        } label: {
+            Text(item.type.displayName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private var deleteButton: some View {
+        Button(action: onDelete) {
+            Image(systemName: "trash")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Delete row")
+    }
+
+    private func switchType(to newType: MultipartItemType) {
+        item.type = newType
+        if newType == .file { item.value = "" }
+        if newType == .text { item.fileURL = nil }
     }
 }
 

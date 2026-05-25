@@ -85,7 +85,7 @@ struct AuthEditorView: View {
         )
         Form {
             LabeledContent("Token") {
-                SecureField("Bearer token", text: binding)
+                SecureField("", text: binding, prompt: Text("Bearer token"))
                     .textFieldStyle(.roundedBorder)
             }
         }
@@ -106,11 +106,11 @@ struct AuthEditorView: View {
         )
         Form {
             LabeledContent("Username") {
-                TextField("username", text: usernameBinding)
+                TextField("", text: usernameBinding, prompt: Text("username"))
                     .textFieldStyle(.roundedBorder)
             }
             LabeledContent("Password") {
-                SecureField("password", text: passwordBinding)
+                SecureField("", text: passwordBinding, prompt: Text("password"))
                     .textFieldStyle(.roundedBorder)
             }
         }
@@ -135,11 +135,11 @@ struct AuthEditorView: View {
         )
         Form {
             LabeledContent("Key") {
-                TextField("X-API-Key", text: keyBinding)
+                TextField("", text: keyBinding, prompt: Text("X-API-Key"))
                     .textFieldStyle(.roundedBorder)
             }
             LabeledContent("Value") {
-                SecureField("api_key_value", text: valueBinding)
+                SecureField("", text: valueBinding, prompt: Text("api_key_value"))
                     .textFieldStyle(.roundedBorder)
             }
             LabeledContent("Add To") {
@@ -193,23 +193,23 @@ struct AuthEditorView: View {
 
             Form {
                 LabeledContent("Client ID") {
-                    TextField("client_id", text: clientId)
+                    TextField("", text: clientId, prompt: Text("client_id"))
                         .textFieldStyle(.roundedBorder)
                 }
                 LabeledContent("Client Secret") {
-                    SecureField("client_secret", text: clientSecret)
+                    SecureField("", text: clientSecret, prompt: Text("client_secret"))
                         .textFieldStyle(.roundedBorder)
                 }
                 LabeledContent("Auth URL") {
-                    TextField("https://", text: authURL)
+                    TextField("", text: authURL, prompt: Text("https://"))
                         .textFieldStyle(.roundedBorder)
                 }
                 LabeledContent("Token URL") {
-                    TextField("https://", text: tokenURL)
+                    TextField("", text: tokenURL, prompt: Text("https://"))
                         .textFieldStyle(.roundedBorder)
                 }
                 LabeledContent("Scope") {
-                    TextField("read write", text: scope)
+                    TextField("", text: scope, prompt: Text("read write"))
                         .textFieldStyle(.roundedBorder)
                 }
             }
@@ -240,19 +240,19 @@ struct AuthEditorView: View {
 
         Form {
             LabeledContent("Access Key ID") {
-                TextField("AKIAIOSFODNN7EXAMPLE", text: accessKey)
+                TextField("", text: accessKey, prompt: Text("AKIAIOSFODNN7EXAMPLE"))
                     .textFieldStyle(.roundedBorder)
             }
             LabeledContent("Secret Access Key") {
-                SecureField("wJalrXUtnFEMI/K7MDENG", text: secretKey)
+                SecureField("", text: secretKey, prompt: Text("wJalrXUtnFEMI/K7MDENG"))
                     .textFieldStyle(.roundedBorder)
             }
             LabeledContent("Region") {
-                TextField("us-east-1", text: region)
+                TextField("", text: region, prompt: Text("us-east-1"))
                     .textFieldStyle(.roundedBorder)
             }
             LabeledContent("Service") {
-                TextField("execute-api", text: service)
+                TextField("", text: service, prompt: Text("execute-api"))
                     .textFieldStyle(.roundedBorder)
             }
         }

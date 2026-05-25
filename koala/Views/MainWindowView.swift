@@ -20,7 +20,10 @@ struct MainWindowView: View {
         .environment(historyService)
         .task {
             appState.loadFromDisk()
-            historyService.load()
+            historyService.loadForProject(appState.activeProjectId)
+        }
+        .onChange(of: appState.activeProjectId) { _, newId in
+            historyService.loadForProject(newId)
         }
         .toolbar {
             ToolbarItem(placement: .navigation) {

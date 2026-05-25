@@ -18,47 +18,122 @@ final class PersistenceService {
 
     private let decoder = JSONDecoder()
 
-    // MARK: Collections
+    // MARK: - Projects Manifest
 
-    func loadCollections() throws -> [KoalaCollection] {
-        try loadArray(from: "collections.json")
+    func loadProjects() throws -> ProjectsManifest {
+        migrateLegacyIfNeeded()
+        let url = baseURL.appendingPathComponent("projects.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return ProjectsManifest() }
+        let data = try Data(contentsOf: url)
+        return try decoder.decode(ProjectsManifest.self, from: data)
     }
 
-    func saveCollections(_ collections: [KoalaCollection]) throws {
-        try save(collections, to: "collections.json")
+    func saveProjects(_ manifest: ProjectsManifest) throws {
+        try save(manifest, to: baseURL.appendingPathComponent("projects.json"))
     }
 
-    // MARK: Environments
+    // MARK: - Per-Project Collections
 
-    func loadEnvironments() throws -> [KoalaEnvironment] {
-        try loadArray(from: "environments.json")
+    func loadCollections(forProject id: UUID) throws -> [KoalaCollection] {
+        try loadArray(from: projectURL(id, "collections.json"))
     }
 
-    func saveEnvironments(_ environments: [KoalaEnvironment]) throws {
-        try save(environments, to: "environments.json")
+    func saveCollections(_ collections: [KoalaCollection], forProject id: UUID) throws {
+        try ensureProjectDir(id)
+        try save(collections, to: projectURL(id, "collections.json"))
     }
 
-    // MARK: Globals
+    // MARK: - Per-Project Environments
 
-    func loadGlobals() throws -> [KeyValuePair] {
-        try loadArray(from: "globals.json")
+    func loadEnvironments(forProject id: UUID) throws -> [KoalaEnvironment] {
+        try loadArray(from: projectURL(id, "environments.json"))
     }
 
-    func saveGlobals(_ items: [KeyValuePair]) throws {
-        try save(items, to: "globals.json")
+    func saveEnvironments(_ environments: [KoalaEnvironment], forProject id: UUID) throws {
+        try ensureProjectDir(id)
+        try save(environments, to: projectURL(id, "environments.json"))
     }
 
-    // MARK: Helpers
+    // MARK: - Per-Project Globals
 
-    private func loadArray<T: Decodable>(from filename: String) throws -> [T] {
-        let url = baseURL.appendingPathComponent(filename)
+    func loadGlobals(forProject id: UUID) throws -> [KeyValuePair] {
+        try loadArray(from: projectURL(id, "globals.json"))
+    }
+
+    func saveGlobals(_ items: [KeyValuePair], forProject id: UUID) throws {
+        try ensureProjectDir(id)
+        try save(items, to: projectURL(id, "globals.json"))
+    }
+
+    // MARK: - Per-Project History
+
+    func loadHistory(forProject id: UUID) throws -> [HistoryEntry] {
+        try loadArray(from: projectURL(id, "history.json"))
+    }
+
+    func saveHistory(_ entries: [HistoryEntry], forProject id: UUID) throws {
+        try ensureProjectDir(id)
+        try save(entries, to: projectURL(id, "history.json"))
+    }
+
+    // MARK: - Delete Project Data
+
+    func deleteProjectData(_ id: UUID) throws {
+        let dir = projectDir(id)
+        guard FileManager.default.fileExists(atPath: dir.path) else { return }
+        try FileManager.default.removeItem(at: dir)
+    }
+
+    // MARK: - Legacy Migration
+
+    /// One-time migration: if `projects.json` doesn't exist but legacy root-level files do,
+    /// create a "Default" project and move the files into `projects/<id>/`.
+    func migrateLegacyIfNeeded() {
+        let manifestURL = baseURL.appendingPathComponent("projects.json")
+        guard !FileManager.default.fileExists(atPath: manifestURL.path) else { return }
+
+        let legacyFiles = ["collections.json", "environments.json", "globals.json", "history.json"]
+        let hasLegacy = legacyFiles.contains { name in
+            FileManager.default.fileExists(atPath: baseURL.appendingPathComponent(name).path)
+        }
+        guard hasLegacy else { return }
+
+        let defaultProject = Project(name: "Default", slug: "default")
+        try? ensureProjectDir(defaultProject.id)
+
+        for name in legacyFiles {
+            let src = baseURL.appendingPathComponent(name)
+            let dst = projectURL(defaultProject.id, name)
+            guard FileManager.default.fileExists(atPath: src.path) else { continue }
+            try? FileManager.default.moveItem(at: src, to: dst)
+        }
+
+        let manifest = ProjectsManifest(projects: [defaultProject], activeProjectId: defaultProject.id)
+        try? save(manifest, to: manifestURL)
+    }
+
+    // MARK: - Helpers
+
+    private func projectDir(_ id: UUID) -> URL {
+        baseURL.appendingPathComponent("projects").appendingPathComponent(id.uuidString)
+    }
+
+    private func projectURL(_ id: UUID, _ filename: String) -> URL {
+        projectDir(id).appendingPathComponent(filename)
+    }
+
+    private func ensureProjectDir(_ id: UUID) throws {
+        let dir = projectDir(id)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    private func loadArray<T: Decodable>(from url: URL) throws -> [T] {
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
         let data = try Data(contentsOf: url)
         return try decoder.decode([T].self, from: data)
     }
 
-    private func save<T: Encodable>(_ value: T, to filename: String) throws {
-        let url = baseURL.appendingPathComponent(filename)
+    private func save<T: Encodable>(_ value: T, to url: URL) throws {
         let data = try encoder.encode(value)
         try data.write(to: url, options: .atomicWrite)
     }
