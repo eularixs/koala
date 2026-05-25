@@ -8,69 +8,106 @@ struct WelcomeWindowView: View {
     let onPicked: () -> Void
 
     @State private var showCreateSheet = false
-    @State private var newProjectName = ""
-    @State private var newProjectSlug = ""
-    @State private var newProjectColor: String? = nil
-
+    @State private var editingProject: Project? = nil
     @State private var showImporter = false
     @State private var importError: String? = nil
     @State private var showImportError = false
-
+    @State private var showSettings = false
     @State private var search = ""
 
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-                .frame(width: 280)
-                .background(.regularMaterial)
-            Divider()
+                .frame(width: 240)
+            Divider().opacity(0.4)
             projectsList
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 880, minHeight: 560)
-        .sheet(isPresented: $showCreateSheet) { createSheet }
+        .background(VisualEffectView(material: .underWindowBackground))
+        .sheet(isPresented: $showCreateSheet) {
+            ProjectFormSheet(
+                title: "New Project",
+                initial: Project(name: "", slug: ""),
+                onSubmit: { project, group in
+                    let created = appState.createProject(name: project.name)
+                    if !project.slug.isEmpty {
+                        appState.setSlug(project.slug, for: created.id)
+                    }
+                    appState.setColor(project.color, for: created.id)
+                    appState.setGroupName(group, for: created.id)
+                    appState.switchProject(to: created.id)
+                    showCreateSheet = false
+                    onPicked()
+                },
+                onCancel: { showCreateSheet = false }
+            )
+        }
+        .sheet(item: $editingProject) { project in
+            ProjectFormSheet(
+                title: "Edit Project",
+                initial: project,
+                onSubmit: { updated, group in
+                    appState.renameProject(project.id, to: updated.name)
+                    appState.setSlug(updated.slug, for: project.id)
+                    appState.setColor(updated.color, for: project.id)
+                    appState.setGroupName(group, for: project.id)
+                    editingProject = nil
+                },
+                onCancel: { editingProject = nil }
+            )
+        }
         .fileImporter(
             isPresented: $showImporter,
             allowedContentTypes: [.json, .data, .plainText],
             allowsMultipleSelection: false
-        ) { result in
-            handleImport(result)
-        }
+        ) { result in handleImport(result) }
         .alert("Import Error", isPresented: $showImportError, presenting: importError) { _ in
             Button("OK") {}
         } message: { Text($0) }
+        .sheet(isPresented: $showSettings) { SettingsView() }
     }
 
     // MARK: - Sidebar
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Spacer().frame(height: 24)
+        VStack(alignment: .leading, spacing: 14) {
+            Spacer().frame(height: 38)
 
-            VStack(alignment: .center, spacing: 12) {
+            VStack(spacing: 8) {
                 Image(systemName: "circle.hexagongrid.fill")
-                    .font(.system(size: 56))
+                    .font(.system(size: 44))
                     .foregroundStyle(.tint)
                 Text("Koala")
-                    .font(.system(.largeTitle, design: .rounded).weight(.semibold))
-                Text("Native macOS API client")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(.system(.title2, design: .rounded).weight(.semibold))
             }
             .frame(maxWidth: .infinity)
 
             Spacer()
 
-            VStack(spacing: 10) {
-                Button(action: openCreate) {
+            VStack(spacing: 8) {
+                Button {
+                    showCreateSheet = true
+                } label: {
                     Label("Create Project", systemImage: "plus.circle.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
 
-                Button(action: { showImporter = true }) {
+                Button {
+                    showImporter = true
+                } label: {
                     Label("Import from Other App", systemImage: "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+
+                Button {
+                    showSettings = true
+                } label: {
+                    Label("Settings", systemImage: "gear")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -79,7 +116,7 @@ struct WelcomeWindowView: View {
 
             Spacer().frame(height: 16)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 20)
         .frame(maxHeight: .infinity)
     }
 
@@ -88,44 +125,69 @@ struct WelcomeWindowView: View {
     private var projectsList: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Your Projects")
-                    .font(.title2.weight(.semibold))
                 Spacer()
                 TextField("", text: $search, prompt: Text("Search projects..."))
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 240)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 24)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 18)
+            .padding(.top, 38)
+            .padding(.bottom, 8)
 
-            Divider()
-
-            if filtered.isEmpty {
+            if appState.projects.isEmpty {
                 emptyState
             } else {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
-                        ForEach(filtered) { project in
-                            ProjectCard(project: project) {
-                                openProject(project)
-                            } onDelete: {
-                                appState.deleteProject(project.id)
+                List {
+                    ForEach(groupedFiltered, id: \.0) { groupName, members in
+                        Section(header: groupHeader(groupName, count: members.count)) {
+                            ForEach(members) { project in
+                                ProjectRow(project: project) {
+                                    openProject(project)
+                                } onEdit: {
+                                    editingProject = project
+                                } onDelete: {
+                                    appState.deleteProject(project.id)
+                                }
                             }
                         }
                     }
-                    .padding(24)
                 }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
             }
         }
     }
 
-    private var filtered: [Project] {
-        let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !needle.isEmpty else { return appState.projects }
-        return appState.projects.filter {
-            $0.name.lowercased().contains(needle) || $0.slug.lowercased().contains(needle)
+    private func groupHeader(_ name: String, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text("\(count)")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 5)
+                .background(.secondary.opacity(0.18), in: Capsule())
+            Spacer()
         }
+    }
+
+    private var groupedFiltered: [(String, [Project])] {
+        let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
+        let matching = appState.projects.filter {
+            needle.isEmpty
+                || $0.name.lowercased().contains(needle)
+                || $0.slug.lowercased().contains(needle)
+                || ($0.groupName ?? "").lowercased().contains(needle)
+        }
+        let grouped = Dictionary(grouping: matching) { $0.groupName ?? "Ungrouped" }
+        return grouped
+            .map { ($0.key, $0.value.sorted { $0.updatedAt > $1.updatedAt }) }
+            .sorted { lhs, rhs in
+                if lhs.0 == "Ungrouped" { return false }
+                if rhs.0 == "Ungrouped" { return true }
+                return lhs.0 < rhs.0
+            }
     }
 
     private var emptyState: some View {
@@ -142,96 +204,7 @@ struct WelcomeWindowView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Create sheet
-
-    private var createSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("New Project").font(.title2.weight(.semibold))
-
-            Form {
-                LabeledContent("Name") {
-                    TextField("", text: $newProjectName, prompt: Text("e.g. Eularix"))
-                        .textFieldStyle(.roundedBorder)
-                        .onChange(of: newProjectName) { _, new in
-                            newProjectSlug = Project.deriveSlug(from: new)
-                        }
-                }
-                LabeledContent("Slug") {
-                    TextField("", text: $newProjectSlug, prompt: Text("eularix"))
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
-                }
-                LabeledContent("Color") {
-                    colorPicker
-                }
-            }
-            .formStyle(.grouped)
-
-            HStack {
-                Spacer()
-                Button("Cancel") {
-                    showCreateSheet = false
-                }
-                .keyboardShortcut(.escape, modifiers: [])
-                Button("Create") {
-                    createProject()
-                }
-                .keyboardShortcut(.return, modifiers: [])
-                .buttonStyle(.borderedProminent)
-                .disabled(newProjectName.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(width: 480)
-    }
-
-    private var colorPicker: some View {
-        HStack(spacing: 8) {
-            ForEach(["#FF6B6B", "#FFA94D", "#FFD43B", "#51CF66", "#22B8CF", "#4DABF7", "#9775FA", "#F783AC"], id: \.self) { hex in
-                Circle()
-                    .fill(Color(hex: hex) ?? .gray)
-                    .frame(width: 22, height: 22)
-                    .overlay {
-                        if newProjectColor == hex {
-                            Circle().stroke(Color.primary, lineWidth: 2)
-                        }
-                    }
-                    .onTapGesture { newProjectColor = hex }
-            }
-            Button {
-                newProjectColor = nil
-            } label: {
-                Image(systemName: "xmark.circle")
-            }
-            .buttonStyle(.borderless)
-            .help("Clear color")
-        }
-    }
-
     // MARK: - Actions
-
-    private func openCreate() {
-        newProjectName = ""
-        newProjectSlug = ""
-        newProjectColor = nil
-        showCreateSheet = true
-    }
-
-    private func createProject() {
-        let name = newProjectName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return }
-        var project = appState.createProject(name: name)
-        if !newProjectSlug.isEmpty {
-            appState.setSlug(newProjectSlug, for: project.id)
-            project.slug = newProjectSlug
-        }
-        if let c = newProjectColor {
-            appState.setColor(c, for: project.id)
-        }
-        appState.switchProject(to: project.id)
-        showCreateSheet = false
-        onPicked()
-    }
 
     private func openProject(_ project: Project) {
         appState.switchProject(to: project.id)
@@ -258,11 +231,12 @@ struct WelcomeWindowView: View {
     }
 }
 
-// MARK: - ProjectCard
+// MARK: - ProjectRow
 
-private struct ProjectCard: View {
+private struct ProjectRow: View {
     let project: Project
     let onOpen: () -> Void
+    let onEdit: () -> Void
     let onDelete: () -> Void
 
     @State private var hovering = false
@@ -270,51 +244,43 @@ private struct ProjectCard: View {
 
     var body: some View {
         Button(action: onOpen) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Circle()
-                        .fill(Color(hex: project.color ?? "") ?? .secondary)
-                        .frame(width: 12, height: 12)
-                    Spacer()
-                    Menu {
-                        Button(role: .destructive) {
-                            confirmDelete = true
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .foregroundStyle(.secondary)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(Color(hex: project.color ?? "") ?? .secondary.opacity(0.4))
+                    .frame(width: 10, height: 10)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(project.name)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                    Text(project.slug)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 }
-
-                Text(project.name)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-
-                Text(project.slug)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
 
                 Spacer()
 
-                Text("Updated " + relativeDate(project.updatedAt))
+                Text(relativeDate(project.updatedAt))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+
+                Menu {
+                    Button("Edit...", action: onEdit)
+                    Divider()
+                    Button("Delete", role: .destructive) { confirmDelete = true }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(hovering ? Color.accentColor : Color.secondary.opacity(0.18), lineWidth: 1)
-            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
             .contentShape(Rectangle())
+            .background(hovering ? Color.accentColor.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -327,8 +293,139 @@ private struct ProjectCard: View {
     }
 
     private func relativeDate(_ date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+// MARK: - ProjectFormSheet (borderless Apple-style)
+
+struct ProjectFormSheet: View {
+    let title: String
+    let initial: Project
+    let onSubmit: (Project, String?) -> Void
+    let onCancel: () -> Void
+
+    @Environment(AppState.self) private var appState
+
+    @State private var name: String = ""
+    @State private var slug: String = ""
+    @State private var color: String? = nil
+    @State private var groupName: String = ""
+    @State private var slugManuallyEdited: Bool = false
+
+    private let palette: [String] = [
+        "#FF6B6B", "#FFA94D", "#FFD43B", "#51CF66",
+        "#22B8CF", "#4DABF7", "#9775FA", "#F783AC"
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(title).font(.title3.weight(.semibold))
+
+            VStack(alignment: .leading, spacing: 14) {
+                row(label: "Name") {
+                    TextField("", text: $name, prompt: Text("e.g. Eularix"))
+                        .textFieldStyle(.plain)
+                        .onChange(of: name) { _, new in
+                            if !slugManuallyEdited { slug = Project.deriveSlug(from: new) }
+                        }
+                }
+                Divider()
+                row(label: "Slug") {
+                    TextField("", text: $slug, prompt: Text("eularix"))
+                        .textFieldStyle(.plain)
+                        .font(.system(.body, design: .monospaced))
+                        .onChange(of: slug) { _, _ in slugManuallyEdited = true }
+                }
+                Divider()
+                row(label: "Group") {
+                    HStack {
+                        TextField("", text: $groupName, prompt: Text("Ungrouped"))
+                            .textFieldStyle(.plain)
+                        if !appState.projectGroups.isEmpty {
+                            Menu {
+                                ForEach(appState.projectGroups, id: \.self) { g in
+                                    Button(g) { groupName = g }
+                                }
+                            } label: {
+                                Image(systemName: "list.bullet")
+                            }
+                            .menuStyle(.borderlessButton)
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                        }
+                    }
+                }
+                Divider()
+                row(label: "Color") {
+                    HStack(spacing: 6) {
+                        ForEach(palette, id: \.self) { hex in
+                            Circle()
+                                .fill(Color(hex: hex) ?? .gray)
+                                .frame(width: 18, height: 18)
+                                .overlay {
+                                    if color == hex {
+                                        Circle().stroke(Color.primary, lineWidth: 2)
+                                    }
+                                }
+                                .onTapGesture { color = hex }
+                        }
+                        Button {
+                            color = nil
+                        } label: {
+                            Image(systemName: "xmark.circle")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Clear color")
+                        Spacer()
+                    }
+                }
+            }
+            .padding(14)
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.escape, modifiers: [])
+                Button(title.hasPrefix("Edit") ? "Save" : "Create") {
+                    submit()
+                }
+                .keyboardShortcut(.return, modifiers: [])
+                .buttonStyle(.borderedProminent)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(22)
+        .frame(width: 460)
+        .onAppear {
+            name = initial.name
+            slug = initial.slug
+            color = initial.color
+            groupName = initial.groupName ?? ""
+            slugManuallyEdited = !slug.isEmpty && slug != Project.deriveSlug(from: name)
+        }
+    }
+
+    private func row<C: View>(label: String, @ViewBuilder content: () -> C) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: 64, alignment: .leading)
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func submit() {
+        var p = initial
+        p.name = name.trimmingCharacters(in: .whitespaces)
+        p.slug = slug.trimmingCharacters(in: .whitespaces)
+        p.color = color
+        let group = groupName.trimmingCharacters(in: .whitespaces)
+        onSubmit(p, group.isEmpty ? nil : group)
     }
 }

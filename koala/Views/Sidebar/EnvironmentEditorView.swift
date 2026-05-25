@@ -11,9 +11,16 @@ struct EnvironmentEditorView: View {
         _localEnv = State(initialValue: environment.wrappedValue)
     }
 
+    private let palette: [String] = [
+        "#FF6B6B", "#FFA94D", "#FFD43B", "#51CF66",
+        "#22B8CF", "#4DABF7", "#9775FA", "#F783AC"
+    ]
+
     var body: some View {
         VStack(spacing: 0) {
             headerBar
+            Divider()
+            colorRow
             Divider()
             KeyValueEditorView(
                 items: Binding<[KeyValuePair]>(
@@ -25,16 +32,21 @@ struct EnvironmentEditorView: View {
             .padding(12)
             Spacer()
         }
-        .frame(minWidth: 520, minHeight: 400)
+        .frame(minWidth: 520, minHeight: 440)
     }
 
     private var headerBar: some View {
         HStack(spacing: 12) {
             Button("Cancel", role: .cancel) { dismiss() }
             Spacer()
-            TextField("Environment name", text: $localEnv.name)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 260)
+            HStack(spacing: 6) {
+                if let hex = localEnv.color, let col = Color(hex: hex) {
+                    Circle().fill(col).frame(width: 10, height: 10)
+                }
+                TextField("Environment name", text: $localEnv.name)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 260)
+            }
             Spacer()
             Button("Done") {
                 environment = localEnv
@@ -44,6 +56,37 @@ struct EnvironmentEditorView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private var colorRow: some View {
+        HStack(spacing: 6) {
+            Text("Color")
+                .foregroundStyle(.secondary)
+                .font(.caption)
+                .frame(width: 50, alignment: .leading)
+            ForEach(palette, id: \.self) { hex in
+                Circle()
+                    .fill(Color(hex: hex) ?? .gray)
+                    .frame(width: 16, height: 16)
+                    .overlay {
+                        if localEnv.color == hex {
+                            Circle().stroke(Color.primary, lineWidth: 2)
+                        }
+                    }
+                    .onTapGesture { localEnv.color = hex }
+            }
+            Button {
+                localEnv.color = nil
+            } label: {
+                Image(systemName: "xmark.circle")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Clear color")
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 }
 

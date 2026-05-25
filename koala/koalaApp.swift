@@ -6,7 +6,7 @@ struct koalaApp: App {
         WindowGroup {
             KoalaRootView()
         }
-        .windowStyle(.titleBar)
+        .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
     }
 }

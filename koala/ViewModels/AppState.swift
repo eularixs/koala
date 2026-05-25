@@ -332,6 +332,18 @@ final class AppState {
         saveManifest()
     }
 
+    func setGroupName(_ groupName: String?, for id: UUID) {
+        guard let i = projects.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = groupName?.trimmingCharacters(in: .whitespaces)
+        projects[i].groupName = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        projects[i].updatedAt = Date()
+        saveManifest()
+    }
+
+    var projectGroups: [String] {
+        Array(Set(projects.compactMap { $0.groupName })).sorted()
+    }
+
     func deleteProject(_ id: UUID) {
         try? persistence.deleteProjectData(id)
         collectionsByProject.removeValue(forKey: id)

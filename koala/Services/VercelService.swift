@@ -103,19 +103,26 @@ final class VercelService {
 
     private func oauthConfig() throws -> VercelOAuthConfig {
         let env = ProcessInfo.processInfo.environment
+        let defaults = UserDefaults.standard
 
-        let clientId = Bundle.main.infoDictionary?["VercelClientId"] as? String
-            ?? env["VERCEL_CLIENT_ID"]
-        let clientSecret = Bundle.main.infoDictionary?["VercelClientSecret"] as? String
-            ?? env["VERCEL_CLIENT_SECRET"]
-        let scopes = Bundle.main.infoDictionary?["VercelOAuthScopes"] as? String
-            ?? env["VERCEL_OAUTH_SCOPES"]
+        let clientId = defaults.string(forKey: "VercelClientId").nonEmpty
+            ?? (Bundle.main.infoDictionary?["VercelClientId"] as? String).nonEmpty
+            ?? env["VERCEL_CLIENT_ID"].nonEmpty
+
+        let storedSecret = try? KeychainService().string(for: "vercel.oauth.clientSecret")
+        let clientSecret = storedSecret.nonEmpty
+            ?? (Bundle.main.infoDictionary?["VercelClientSecret"] as? String).nonEmpty
+            ?? env["VERCEL_CLIENT_SECRET"].nonEmpty
+
+        let scopes = defaults.string(forKey: "VercelOAuthScopes").nonEmpty
+            ?? (Bundle.main.infoDictionary?["VercelOAuthScopes"] as? String).nonEmpty
+            ?? env["VERCEL_OAUTH_SCOPES"].nonEmpty
             ?? "user deployments"
 
         guard let id = clientId, !id.isEmpty,
               let secret = clientSecret, !secret.isEmpty else {
             throw VercelError.notConfigured(
-                "Set VERCEL_CLIENT_ID and VERCEL_CLIENT_SECRET in scheme env or Info.plist"
+                "Open Settings and enter your Vercel OAuth client ID + secret."
             )
         }
         return VercelOAuthConfig(clientId: id, clientSecret: secret, scopes: scopes)
@@ -375,5 +382,12 @@ private struct AnyCodable: Codable {
         case let b as Bool: try container.encode(b)
         default: try container.encode("")
         }
+    }
+}
+
+private extension Optional where Wrapped == String {
+    var nonEmpty: String? {
+        guard let v = self, !v.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return v
     }
 }

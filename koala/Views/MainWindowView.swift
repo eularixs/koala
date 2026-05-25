@@ -18,6 +18,9 @@ struct MainWindowView: View {
     @State private var exportDocument: KoalaExportDocument? = nil
     @State private var exportFilename: String = "export"
 
+    // MARK: Settings
+    @State private var showSettings = false
+
     var body: some View {
         @Bindable var state = appState
         NavigationSplitView {
@@ -27,7 +30,7 @@ struct MainWindowView: View {
             MainDetailRouter()
                 .navigationSplitViewColumnWidth(min: 480, ideal: 720)
         }
-        .navigationTitle(appState.activeProject?.name ?? "Koala")
+        .navigationTitle("")
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 projectMenu
@@ -59,45 +62,44 @@ struct MainWindowView: View {
         } message: { error in
             Text(error)
         }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
     }
 
-    // MARK: - Project Menu
+    // MARK: - Project Menu (gear icon "Manage Projects")
 
     private var projectMenu: some View {
         Menu {
-            ForEach(appState.projects) { project in
-                Button {
-                    appState.switchProject(to: project.id)
-                } label: {
-                    HStack {
-                        if let hex = project.color, let col = Color(hex: hex) {
-                            Circle().fill(col).frame(width: 10, height: 10)
-                        }
-                        Text(project.name)
-                        if appState.activeProjectId == project.id {
-                            Image(systemName: "checkmark")
+            Section("Switch Project") {
+                ForEach(appState.projects) { project in
+                    Button {
+                        appState.switchProject(to: project.id)
+                    } label: {
+                        HStack {
+                            if let hex = project.color, let col = Color(hex: hex) {
+                                Circle().fill(col).frame(width: 10, height: 10)
+                            }
+                            Text(project.name)
+                            if appState.activeProjectId == project.id {
+                                Image(systemName: "checkmark")
+                            }
                         }
                     }
                 }
             }
             Divider()
-            Button("Back to Welcome...") {
+            Button {
                 onReturnToWelcome()
+            } label: {
+                Label("Manage Projects", systemImage: "gearshape")
             }
         } label: {
-            HStack(spacing: 6) {
-                if let hex = appState.activeProject?.color, let col = Color(hex: hex) {
-                    Circle().fill(col).frame(width: 10, height: 10)
-                } else {
-                    Image(systemName: "square.stack.3d.up")
-                }
-                Text(appState.activeProject?.name ?? "No Project")
-                    .frame(maxWidth: 160, alignment: .leading)
-                    .lineLimit(1)
-            }
-            .font(.callout)
+            Image(systemName: "gearshape")
+                .font(.body)
         }
-        .help("Switch project")
+        .menuIndicator(.hidden)
+        .help("Manage projects")
     }
 
     // MARK: - Environment Menu
@@ -114,6 +116,9 @@ struct MainWindowView: View {
                         appState.selectedEnvironmentId = env.id
                     } label: {
                         HStack {
+                            if let hex = env.color, let col = Color(hex: hex) {
+                                Circle().fill(col).frame(width: 10, height: 10)
+                            }
                             Text(env.name)
                             if appState.selectedEnvironmentId == env.id {
                                 Image(systemName: "checkmark")
@@ -129,12 +134,14 @@ struct MainWindowView: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "leaf")
-                Text(appState.selectedEnvironment?.name ?? "No Environment")
-                    .frame(maxWidth: 140, alignment: .leading)
+                if let hex = appState.selectedEnvironment?.color, let col = Color(hex: hex) {
+                    Circle().fill(col).frame(width: 9, height: 9)
+                }
             }
             .font(.callout)
         }
-        .help("Select active environment")
+        .menuIndicator(.hidden)
+        .help(appState.selectedEnvironment?.name ?? "No environment selected")
     }
 
     // MARK: - File Menu
@@ -151,10 +158,17 @@ struct MainWindowView: View {
                 Button("Koala Native") { beginExport(.koalaNative) }
             }
             .disabled(appState.collections.isEmpty)
+            Divider()
+            Button {
+                showSettings = true
+            } label: {
+                Label("Settings...", systemImage: "gear")
+            }
+            .keyboardShortcut(",", modifiers: .command)
         } label: {
             Label("File", systemImage: "doc")
         }
-        .help("Import or export collections")
+        .help("Import, export, settings")
     }
 
     // MARK: - Import

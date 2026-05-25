@@ -5,15 +5,6 @@ struct HistoryView: View {
     @Environment(HistoryService.self) private var historyService
     @State private var filterURL: String = ""
     @State private var filterMethod: String = "All"
-    @State private var filterStatus: StatusFilter = .all
-
-    enum StatusFilter: String, CaseIterable, Identifiable {
-        case all = "All"
-        case success = "2xx"
-        case clientError = "4xx"
-        case serverError = "5xx"
-        var id: String { rawValue }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,11 +58,6 @@ struct HistoryView: View {
             HStack(spacing: 8) {
                 methodPicker
                     .frame(maxWidth: .infinity)
-                Picker("Status", selection: $filterStatus) {
-                    ForEach(StatusFilter.allCases) { f in Text(f.rawValue).tag(f) }
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 10)
         }
@@ -110,14 +96,7 @@ struct HistoryView: View {
         historyService.entries.filter { entry in
             let urlMatch = filterURL.isEmpty || entry.requestSnapshot.url.localizedCaseInsensitiveContains(filterURL)
             let methodMatch = filterMethod == "All" || entry.requestSnapshot.method.rawValue == filterMethod
-            let statusMatch: Bool
-            switch filterStatus {
-            case .all: statusMatch = true
-            case .success: statusMatch = (entry.responseSnapshot?.statusCode ?? 0) >= 200 && (entry.responseSnapshot?.statusCode ?? 0) < 300
-            case .clientError: statusMatch = (entry.responseSnapshot?.statusCode ?? 0) >= 400 && (entry.responseSnapshot?.statusCode ?? 0) < 500
-            case .serverError: statusMatch = (entry.responseSnapshot?.statusCode ?? 0) >= 500 && (entry.responseSnapshot?.statusCode ?? 0) < 600
-            }
-            return urlMatch && methodMatch && statusMatch
+            return urlMatch && methodMatch
         }
     }
 }

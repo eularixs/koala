@@ -7,6 +7,7 @@ struct Project: Identifiable, Codable, Hashable {
     var name: String
     var slug: String
     var color: String?
+    var groupName: String?
     var createdAt: Date
     var updatedAt: Date
 
@@ -15,6 +16,7 @@ struct Project: Identifiable, Codable, Hashable {
         name: String = "Untitled Project",
         slug: String = "",
         color: String? = nil,
+        groupName: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -22,8 +24,24 @@ struct Project: Identifiable, Codable, Hashable {
         self.name = name
         self.slug = slug.isEmpty ? Project.deriveSlug(from: name) : slug
         self.color = color
+        self.groupName = groupName
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, slug, color, groupName, createdAt, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        slug = try c.decode(String.self, forKey: .slug)
+        color = try c.decodeIfPresent(String.self, forKey: .color)
+        groupName = try c.decodeIfPresent(String.self, forKey: .groupName)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
     }
 
     // MARK: - Slug Helpers
