@@ -19,13 +19,22 @@ struct WelcomeWindowView: View {
     @State private var newGroupName = ""
 
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-                .frame(width: 240)
-                .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
-            Divider().opacity(0.4)
-            projectsList
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ZStack(alignment: .topLeading) {
+            HStack(spacing: 0) {
+                VisualEffectView(material: .sidebar, blendingMode: .behindWindow)
+                    .frame(width: 240)
+                Color.clear
+            }
+            .ignoresSafeArea()
+
+            HStack(spacing: 0) {
+                sidebar
+                    .frame(width: 240)
+                Divider().opacity(0.4)
+                projectsList
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(width: 880, height: 560)
         }
         .frame(width: 880, height: 560)
         .ignoresSafeArea()
@@ -139,7 +148,7 @@ struct WelcomeWindowView: View {
         VStack(spacing: 0) {
             actionToolbar
                 .padding(.horizontal, 14)
-                .padding(.top, 44)
+                .padding(.top, 10)
                 .padding(.bottom, 8)
 
             if appState.projects.isEmpty {
