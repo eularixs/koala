@@ -4,8 +4,7 @@ import SwiftUI
 struct koalaApp: App {
     var body: some Scene {
         WindowGroup {
-            MainWindowView()
-                .frame(minWidth: 960, minHeight: 600)
+            KoalaRootView()
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)

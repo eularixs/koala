@@ -25,7 +25,6 @@ enum ResponseTab: String, CaseIterable, Identifiable {
 @MainActor
 @Observable
 final class RequestViewModel {
-    var request: KoalaRequest
     var response: KoalaResponse? = nil
     var isSending: Bool = false
     var lastError: String? = nil
@@ -35,12 +34,11 @@ final class RequestViewModel {
 
     private let httpClient: HTTPClientService
 
-    init(request: KoalaRequest = .empty, httpClient: HTTPClientService = HTTPClientService()) {
-        self.request = request
+    init(httpClient: HTTPClientService = HTTPClientService()) {
         self.httpClient = httpClient
     }
 
-    func send(environment: KoalaEnvironment? = nil, globalVariables: [KeyValuePair] = []) async {
+    func send(_ request: KoalaRequest, environment: KoalaEnvironment? = nil, globalVariables: [KeyValuePair] = []) async {
         isSending = true
         lastError = nil
         defer { isSending = false }
@@ -52,7 +50,7 @@ final class RequestViewModel {
         }
     }
 
-    func generateCurlCommand(environment: KoalaEnvironment? = nil, globalVariables: [KeyValuePair] = []) {
+    func generateCurlCommand(_ request: KoalaRequest, environment: KoalaEnvironment? = nil, globalVariables: [KeyValuePair] = []) {
         curlCommand = httpClient.curlCommand(for: request, environment: environment, globalVariables: globalVariables)
     }
 }

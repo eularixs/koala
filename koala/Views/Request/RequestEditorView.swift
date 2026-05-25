@@ -14,11 +14,17 @@ private enum RequestEditorTab: String, CaseIterable, Identifiable {
 // MARK: - RequestEditorView
 
 struct RequestEditorView: View {
-    @Bindable var viewModel: RequestViewModel
+    @Binding var tab: RequestTab
 
+    @State private var viewModel = RequestViewModel()
     @State private var selectedRequestEditorTab: RequestEditorTab = .params
-    @State private var environment: KoalaEnvironment? = nil
-    @State private var globalVariables: [KeyValuePair] = []
+    @State private var saveTask: Task<Void, Never>? = nil
+
+    @Environment(AppState.self) private var appState
+    @Environment(HistoryService.self) private var historyService
+
+    private var environment: KoalaEnvironment? { appState.selectedEnvironment }
+    private var globalVariables: [KeyValuePair] { appState.globalVariables }
 
     var body: some View {
         VSplitView {
@@ -28,6 +34,19 @@ struct RequestEditorView: View {
             responsePanel
                 .frame(minHeight: 200)
         }
+        .onChange(of: viewModel.response) { _, newResponse in
+            tab.response = newResponse
+            if let response = newResponse {
+                historyService.record(
+                    request: tab.request,
+                    response: response,
+                    projectId: appState.activeProjectId ?? UUID()
+                )
+            }
+        }
+        .onChange(of: tab.request) { _, newRequest in
+            scheduleSave(newRequest)
+        }
     }
 
     // MARK: - Request Panel
@@ -35,7 +54,7 @@ struct RequestEditorView: View {
     private var requestPanel: some View {
         VStack(spacing: 0) {
             URLBarView(
-                request: $viewModel.request,
+                request: $tab.request,
                 isSending: viewModel.isSending,
                 onSend: { sendRequest() }
             )
@@ -81,10 +100,10 @@ struct RequestEditorView: View {
     private var requestTabContent: some View {
         ScrollView {
             switch selectedRequestEditorTab {
-            case .params:  ParamsEditorView(request: $viewModel.request)
-            case .headers: HeadersEditorView(request: $viewModel.request)
-            case .body:    BodyEditorView(request: $viewModel.request)
-            case .auth:    AuthEditorView(request: $viewModel.request)
+            case .params:  ParamsEditorView(request: $tab.request)
+            case .headers: HeadersEditorView(request: $tab.request)
+            case .body:    BodyEditorView(request: $tab.request)
+            case .auth:    AuthEditorView(request: $tab.request)
             }
         }
     }
@@ -101,24 +120,41 @@ struct RequestEditorView: View {
     // MARK: - Actions
 
     private func sendRequest() {
-        viewModel.generateCurlCommand(environment: environment, globalVariables: globalVariables)
+        viewModel.generateCurlCommand(tab.request, environment: environment, globalVariables: globalVariables)
         Task {
-            await viewModel.send(environment: environment, globalVariables: globalVariables)
+            await viewModel.send(tab.request, environment: environment, globalVariables: globalVariables)
+        }
+    }
+
+    private func scheduleSave(_ request: KoalaRequest) {
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            appState.updateRequest(request)
+            appState.saveActiveProject()
         }
     }
 }
 
 // MARK: - Preview
 
-#Preview("RequestEditorView") {
-    let vm = RequestViewModel(
+private struct RequestEditorPreview: View {
+    @State private var tab = RequestTab(
         request: KoalaRequest(
             method: .standard(.get),
             url: "https://jsonplaceholder.typicode.com/posts/1",
             headers: [KeyValuePair(key: "Accept", value: "application/json", isEnabled: true)]
         )
     )
+    var body: some View {
+        RequestEditorView(tab: $tab)
+            .environment(AppState())
+            .environment(HistoryService())
+    }
+}
 
-    return RequestEditorView(viewModel: vm)
+#Preview("RequestEditorView") {
+    RequestEditorPreview()
         .frame(width: 800, height: 700)
 }

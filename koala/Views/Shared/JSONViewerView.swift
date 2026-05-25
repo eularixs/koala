@@ -115,13 +115,12 @@ struct JSONViewerView: View {
     private var treeView: some View {
         if let node {
             ScrollView(.vertical) {
-                HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     JSONNodeView(node: node, depth: 0)
-                        .padding(8)
-                    Spacer(minLength: 0)
                 }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else {
             rawView
         }
@@ -134,88 +133,123 @@ struct JSONViewerView: View {
     }
 }
 
-// MARK: - JSONNodeView
+// MARK: - JSONNodeView (custom collapsible, no DisclosureGroup)
 
 private struct JSONNodeView: View {
     let node: JSONNode
     let depth: Int
     @State private var isExpanded = true
 
+    private let indentWidth: CGFloat = 14
+
     var body: some View {
         switch node {
         case .object(_, let key, let pairs):
-            collapsible(key: key, summary: "{\(pairs.count)}", bracketOpen: "{", bracketClose: "}") {
+            collapsibleBlock(
+                key: key,
+                bracketOpen: "{",
+                bracketClose: "}",
+                summary: "\(pairs.count) " + (pairs.count == 1 ? "item" : "items")
+            ) {
                 ForEach(pairs, id: \.key) { pair in
                     JSONNodeView(node: pair.value, depth: depth + 1)
                 }
             }
+
         case .array(_, let key, let items):
-            collapsible(key: key, summary: "[\(items.count)]", bracketOpen: "[", bracketClose: "]") {
+            collapsibleBlock(
+                key: key,
+                bracketOpen: "[",
+                bracketClose: "]",
+                summary: "\(items.count) " + (items.count == 1 ? "item" : "items")
+            ) {
                 ForEach(items) { item in
                     JSONNodeView(node: item, depth: depth + 1)
                 }
             }
+
         case .string(_, let key, let value):
-            leafRow(key: key) {
-                Text("\"\(value)\"").foregroundStyle(.green)
-            }
+            leafRow(key: key, valueText: "\"\(value)\"", color: .green)
         case .number(_, let key, let value):
-            leafRow(key: key) {
-                Text(value).foregroundStyle(.blue)
-            }
+            leafRow(key: key, valueText: value, color: .blue)
         case .bool(_, let key, let value):
-            leafRow(key: key) {
-                Text(value ? "true" : "false").foregroundStyle(.purple)
-            }
+            leafRow(key: key, valueText: value ? "true" : "false", color: .purple)
         case .null(_, let key):
-            leafRow(key: key) {
-                Text("null").foregroundStyle(.secondary)
-            }
+            leafRow(key: key, valueText: "null", color: .secondary)
         }
     }
 
     @ViewBuilder
-    private func collapsible<Content: View>(
+    private func collapsibleBlock<Content: View>(
         key: String?,
-        summary: String,
         bracketOpen: String,
         bracketClose: String,
+        summary: String,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            content()
-                .padding(.leading, 16)
-        } label: {
-            HStack(spacing: 4) {
-                if let key {
-                    keyLabel(key)
-                    Text(":").foregroundStyle(.secondary)
-                }
-                if isExpanded {
-                    Text(bracketOpen).foregroundStyle(.secondary)
-                } else {
-                    Text("\(bracketOpen)\(summary)\(bracketClose)")
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 10)
+
+                    if let key {
+                        keyText(key)
+                        Text(":").foregroundStyle(.secondary)
+                    }
+
+                    if isExpanded {
+                        Text(bracketOpen).foregroundStyle(.secondary)
+                    } else {
+                        Text("\(bracketOpen) \(summary) \(bracketClose)")
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .font(.system(.body, design: .monospaced).monospacedDigit())
+            .buttonStyle(.plain)
+            .font(.system(.body, design: .monospaced))
+
+            if isExpanded {
+                content()
+                    .padding(.leading, indentWidth)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: 0) {
+                    Text(bracketClose).foregroundStyle(.secondary)
+                }
+                .font(.system(.body, design: .monospaced))
+                .padding(.leading, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
-    private func leafRow<V: View>(key: String?, @ViewBuilder value: () -> V) -> some View {
+    private func leafRow(key: String?, valueText: String, color: Color) -> some View {
         HStack(spacing: 4) {
+            // empty chevron-slot for visual alignment with collapsible rows
+            Spacer().frame(width: 10)
+
             if let key {
-                keyLabel(key)
+                keyText(key)
                 Text(":").foregroundStyle(.secondary)
             }
-            value()
+            Text(valueText).foregroundStyle(color)
         }
-        .font(.system(.body, design: .monospaced).monospacedDigit())
+        .font(.system(.body, design: .monospaced))
         .padding(.vertical, 1)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func keyLabel(_ key: String) -> some View {
+    private func keyText(_ key: String) -> some View {
         Text(key).foregroundStyle(.primary).fontWeight(.medium)
     }
 }

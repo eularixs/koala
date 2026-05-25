@@ -76,6 +76,17 @@ final class PersistenceService {
         try save(entries, to: projectURL(id, "history.json"))
     }
 
+    // MARK: - Per-Project Mock Servers
+
+    func loadMockServers(forProject id: UUID) throws -> [MockServer] {
+        try loadArray(from: projectURL(id, "mock_servers.json"))
+    }
+
+    func saveMockServers(_ servers: [MockServer], forProject id: UUID) throws {
+        try ensureProjectDir(id)
+        try save(servers, to: projectURL(id, "mock_servers.json"))
+    }
+
     // MARK: - Delete Project Data
 
     func deleteProjectData(_ id: UUID) throws {

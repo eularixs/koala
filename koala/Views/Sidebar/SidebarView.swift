@@ -8,13 +8,10 @@ struct SidebarView: View {
     var body: some View {
         @Bindable var state = appState
         VStack(spacing: 0) {
-            ProjectSwitcherView()
-
-            Divider()
-
             Picker("Section", selection: $state.selectedSidebarSection) {
                 ForEach(SidebarSection.allCases, id: \.self) { section in
-                    Label(section.label, systemImage: section.systemImage)
+                    Image(systemName: section.systemImage)
+                        .help(section.label)
                         .tag(section)
                 }
             }
@@ -32,9 +29,7 @@ struct SidebarView: View {
                 case .environments:
                     EnvironmentListView()
                 case .mockServers:
-                    Text("Mock Servers — Wave 3")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    MockServerListView()
                 case .history:
                     HistoryView()
                 }

@@ -47,6 +47,21 @@ final class AppState {
     private var environmentsByProject: [UUID: [KoalaEnvironment]] = [:]
     private var globalsByProject: [UUID: [KeyValuePair]] = [:]
 
+    // MARK: - Wave 3: Mock Servers slice
+    private var mockServersByProject: [UUID: [MockServer]] = [:]
+
+    /// Mock servers for the currently active project.
+    var mockServers: [MockServer] {
+        get { mockServersByProject[activeProjectId ?? UUID()] ?? [] }
+        set {
+            guard let id = activeProjectId else { return }
+            mockServersByProject[id] = newValue
+        }
+    }
+
+    /// Selection state for the mock server detail pane.
+    var selectedMockServerId: UUID? = nil
+
     // MARK: Computed accessors (existing shape preserved)
     var collections: [KoalaCollection] {
         get { collectionsByProject[activeProjectId ?? UUID()] ?? [] }
@@ -136,15 +151,18 @@ final class AppState {
     func addCollection(_ name: String) {
         let projectId = activeProjectId ?? UUID()
         collections.append(KoalaCollection(projectId: projectId, name: name))
+        saveActiveProject()
     }
 
     func deleteCollection(_ id: UUID) {
         collections.removeAll(where: { $0.id == id })
+        saveActiveProject()
     }
 
     func renameCollection(_ id: UUID, to name: String) {
         guard let i = collections.firstIndex(where: { $0.id == id }) else { return }
         collections[i].name = name
+        saveActiveProject()
     }
 
     // MARK: Folder / Request Add
@@ -157,6 +175,7 @@ final class AppState {
         } else {
             collections[ci].items.append(.folder(folder))
         }
+        saveActiveProject()
     }
 
     func addRequest(parentCollectionId: UUID, parentFolderId: UUID?, request: KoalaRequest) {
@@ -166,6 +185,7 @@ final class AppState {
         } else {
             collections[ci].items.append(.request(request))
         }
+        saveActiveProject()
     }
 
     @discardableResult
@@ -191,7 +211,10 @@ final class AppState {
 
     func deleteItem(id: UUID) {
         for i in collections.indices {
-            if removeItem(id: id, from: &collections[i].items) { return }
+            if removeItem(id: id, from: &collections[i].items) {
+                saveActiveProject()
+                return
+            }
         }
     }
 
@@ -216,7 +239,10 @@ final class AppState {
 
     func renameItem(id: UUID, to name: String) {
         for i in collections.indices {
-            if renameItem(id: id, to: name, in: &collections[i].items) { return }
+            if renameItem(id: id, to: name, in: &collections[i].items) {
+                saveActiveProject()
+                return
+            }
         }
     }
 
@@ -243,6 +269,39 @@ final class AppState {
         return false
     }
 
+    // MARK: - Wave 3: Mock Server CRUD
+
+    func addMockServer(_ server: MockServer, forProject projectId: UUID) {
+        if mockServersByProject[projectId] == nil {
+            mockServersByProject[projectId] = []
+        }
+        mockServersByProject[projectId]!.append(server)
+        saveMockServersForProject(projectId)
+    }
+
+    func removeMockServer(_ id: UUID, fromProject projectId: UUID) {
+        mockServersByProject[projectId]?.removeAll(where: { $0.id == id })
+        if selectedMockServerId == id { selectedMockServerId = nil }
+        saveMockServersForProject(projectId)
+    }
+
+    func updateMockServer(_ server: MockServer) {
+        guard let idx = mockServersByProject[server.projectId]?.firstIndex(where: { $0.id == server.id }) else { return }
+        mockServersByProject[server.projectId]![idx] = server
+        saveMockServersForProject(server.projectId)
+    }
+
+    func renameMockServer(_ id: UUID, to name: String) {
+        guard let pid = activeProjectId,
+              let idx = mockServersByProject[pid]?.firstIndex(where: { $0.id == id }) else { return }
+        mockServersByProject[pid]![idx].name = name
+        saveMockServersForProject(pid)
+    }
+
+    private func saveMockServersForProject(_ id: UUID) {
+        try? persistence.saveMockServers(mockServersByProject[id] ?? [], forProject: id)
+    }
+
     // MARK: Project Management
 
     @discardableResult
@@ -266,11 +325,19 @@ final class AppState {
         projects[i].updatedAt = Date()
     }
 
+    func setColor(_ hex: String?, for id: UUID) {
+        guard let i = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[i].color = hex
+        projects[i].updatedAt = Date()
+        saveManifest()
+    }
+
     func deleteProject(_ id: UUID) {
         try? persistence.deleteProjectData(id)
         collectionsByProject.removeValue(forKey: id)
         environmentsByProject.removeValue(forKey: id)
         globalsByProject.removeValue(forKey: id)
+        mockServersByProject.removeValue(forKey: id)
         projects.removeAll(where: { $0.id == id })
         if activeProjectId == id {
             activeProjectId = projects.first?.id
@@ -319,9 +386,10 @@ final class AppState {
         collectionsByProject[id] = (try? persistence.loadCollections(forProject: id)) ?? []
         environmentsByProject[id] = (try? persistence.loadEnvironments(forProject: id)) ?? []
         globalsByProject[id] = (try? persistence.loadGlobals(forProject: id)) ?? []
+        mockServersByProject[id] = (try? persistence.loadMockServers(forProject: id)) ?? []
     }
 
-    private func saveActiveProject() {
+    func saveActiveProject() {
         guard let id = activeProjectId else { return }
         try? persistence.saveCollections(collectionsByProject[id] ?? [], forProject: id)
         try? persistence.saveEnvironments(environmentsByProject[id] ?? [], forProject: id)

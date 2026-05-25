@@ -44,6 +44,7 @@ private func makeNodes(from items: [CollectionItem]) -> [TreeNode] {
 
 struct CollectionTreeView: View {
     @Environment(AppState.self) private var appState
+    @Environment(WorkspaceState.self) private var workspaceState
     @State private var renamingId: UUID? = nil
     @State private var renameBuffer: String = ""
     @State private var addFolderParentId: UUID? = nil
@@ -69,6 +70,10 @@ struct CollectionTreeView: View {
                     treeRow(node)
                 }
                 .listStyle(.sidebar)
+                .onChange(of: appState.selectedRequestId) { _, newId in
+                    guard let id = newId, let request = appState.request(byId: id) else { return }
+                    workspaceState.openRequest(request)
+                }
             }
         }
         .alert("New Folder", isPresented: $showAddFolder) {
@@ -199,9 +204,11 @@ struct CollectionTreeView: View {
         case .request:
             Button("Rename") { beginRename(node) }
             Button("Duplicate") { duplicateRequest(node.id) }
-            // TODO: Open in New Tab — not yet implemented
-            Button("Open in New Tab") {}
-                .disabled(true)
+            Button("Open in New Tab") {
+                if let request = appState.request(byId: node.id) {
+                    workspaceState.openRequest(request)
+                }
+            }
             Divider()
             Button("Delete", role: .destructive) {
                 appState.deleteItem(id: node.id)

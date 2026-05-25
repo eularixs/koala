@@ -15,6 +15,7 @@ struct MethodPickerView: View {
             methodLabel
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
         .sheet(isPresented: $showCustomSheet) {
             CustomMethodSheet(draft: $customMethodDraft) { submitted in

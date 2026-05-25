@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  INFO.template.plist — Wave 3 URL scheme and OAuth config template.
+
+  HOW TO USE:
+  1. Copy this file to koala/Info.plist in the project root.
+  2. In Xcode, select the koala target → Build Settings → search "Generate Info.plist File"
+     → set GENERATE_INFOPLIST_FILE to NO.
+  3. Also in Build Settings, set INFOPLIST_FILE = koala/Info.plist.
+  4. Fill in your actual Vercel OAuth credentials below (or set them via scheme env vars).
+  5. The URL scheme "koala" enables koala://oauth/callback to be handled by this app.
+
+  ALTERNATIVELY (no Info.plist change needed):
+  In your Xcode scheme → Run → Arguments → Environment Variables, add:
+    VERCEL_CLIENT_ID     = <your client id>
+    VERCEL_CLIENT_SECRET = <your client secret>
+  VercelService will read those at runtime. The URL scheme still needs the plist entry.
+-->
+<plist version="1.0">
+<dict>
+    <!-- Standard bundle keys (copy from GENERATED Info.plist or fill in) -->
+    <key>CFBundleDevelopmentRegion</key>
+    <string>$(DEVELOPMENT_LANGUAGE)</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+
+    <!-- MARK: Wave 3 — Vercel OAuth credentials (read by VercelService) -->
+    <key>VercelClientId</key>
+    <string>REPLACE_WITH_YOUR_VERCEL_CLIENT_ID</string>
+    <key>VercelClientSecret</key>
+    <string>REPLACE_WITH_YOUR_VERCEL_CLIENT_SECRET</string>
+    <key>VercelOAuthScopes</key>
+    <string>user deployments</string>
+
+    <!-- MARK: Wave 3 — URL scheme for OAuth callback (koala://oauth/callback) -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.koala.oauth</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>koala</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- macOS specific -->
+    <key>LSMinimumSystemVersion</key>
+    <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+</dict>
+</plist>
