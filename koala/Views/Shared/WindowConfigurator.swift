@@ -36,5 +36,18 @@ struct WindowConfigurator: NSViewRepresentable {
             win.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
                                  height: CGFloat.greatestFiniteMagnitude)
         }
+        // If min == max, lock window to that exact content size.
+        if let m = minSize, let x = maxSize, m == x {
+            if win.contentRect(forFrameRect: win.frame).size != m {
+                win.setContentSize(m)
+                if let screen = win.screen {
+                    let origin = NSPoint(
+                        x: screen.visibleFrame.midX - win.frame.width / 2,
+                        y: screen.visibleFrame.midY - win.frame.height / 2
+                    )
+                    win.setFrameOrigin(origin)
+                }
+            }
+        }
     }
 }
