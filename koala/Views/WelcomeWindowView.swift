@@ -28,6 +28,7 @@ struct WelcomeWindowView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 880, height: 560)
+        .ignoresSafeArea()
         .background(
             WindowConfigurator(
                 hideMinimize: true,
@@ -84,7 +85,7 @@ struct WelcomeWindowView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Spacer().frame(height: 38)
+            Spacer().frame(height: 56)
 
             VStack(spacing: 8) {
                 Image(systemName: "circle.hexagongrid.fill")
@@ -138,8 +139,8 @@ struct WelcomeWindowView: View {
         VStack(spacing: 0) {
             actionToolbar
                 .padding(.horizontal, 14)
-                .padding(.top, 32)
-                .padding(.bottom, 10)
+                .padding(.top, 44)
+                .padding(.bottom, 8)
 
             if appState.projects.isEmpty {
                 emptyState
