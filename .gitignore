@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+.swiftpm/
+
+# Ruflo / Claude Flow artifacts
+.claude-flow/
+.claude/
+agentdb.rvf
+agentdb.rvf.lock
+ruvector.db
+ruvector.db.lock
+*.rvf
