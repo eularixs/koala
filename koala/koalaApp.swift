@@ -8,5 +8,6 @@ struct koalaApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
+        .windowResizability(.contentSize)
     }
 }

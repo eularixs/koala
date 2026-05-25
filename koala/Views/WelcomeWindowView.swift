@@ -34,9 +34,7 @@ struct WelcomeWindowView: View {
                 projectsList
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(width: 880, height: 560)
         }
-        .frame(width: 880, height: 560)
         .ignoresSafeArea()
         .background(
             WindowConfigurator(

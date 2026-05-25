@@ -15,12 +15,15 @@ struct KoalaRootView: View {
         Group {
             if showWelcome {
                 WelcomeWindowView(onPicked: { showWelcome = false })
-                    .frame(minWidth: 880, minHeight: 560)
+                    .frame(width: 880, height: 560)
             } else {
                 MainWindowView(onReturnToWelcome: {
                     showWelcome = true
                 })
-                .frame(minWidth: 960, minHeight: 600)
+                .frame(
+                    minWidth: 960, idealWidth: 1280, maxWidth: .infinity,
+                    minHeight: 600, idealHeight: 800, maxHeight: .infinity
+                )
             }
         }
         .environment(appState)
