@@ -1,55 +1,67 @@
 import SwiftUI
 
 struct MainWindowView: View {
-    @State private var selectedSidebarItem: SidebarSection? = .collections
+    @State private var appState = AppState()
+    @State private var requestViewModel = RequestViewModel()
+    @State private var workspaceState = WorkspaceState()
+    @State private var historyService = HistoryService()
 
     var body: some View {
         NavigationSplitView {
-            SidebarPlaceholderView(selection: $selectedSidebarItem)
+            SidebarView()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
         } detail: {
-            RequestPlaceholderView()
+            RequestEditorView(viewModel: requestViewModel)
                 .navigationSplitViewColumnWidth(min: 480, ideal: 720)
         }
         .navigationTitle("Koala")
-    }
-}
-
-enum SidebarSection: Hashable {
-    case collections
-    case environments
-    case mockServers
-    case history
-}
-
-private struct SidebarPlaceholderView: View {
-    @Binding var selection: SidebarSection?
-
-    var body: some View {
-        List(selection: $selection) {
-            Section("Workspace") {
-                Label("Collections", systemImage: "folder").tag(SidebarSection.collections)
-                Label("Environments", systemImage: "leaf").tag(SidebarSection.environments)
-                Label("Mock Servers", systemImage: "server.rack").tag(SidebarSection.mockServers)
-                Label("History", systemImage: "clock").tag(SidebarSection.history)
+        .environment(appState)
+        .environment(workspaceState)
+        .environment(historyService)
+        .task {
+            appState.loadFromDisk()
+            historyService.load()
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                environmentMenu
             }
         }
-        .listStyle(.sidebar)
     }
-}
 
-private struct RequestPlaceholderView: View {
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "paperplane")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("Request Editor")
-                .font(.title2)
-            Text("Wave 2 will land here.")
-                .foregroundStyle(.secondary)
+    private var environmentMenu: some View {
+        Menu {
+            Button("No Environment") {
+                appState.selectedEnvironmentId = nil
+            }
+            if !appState.environments.isEmpty {
+                Divider()
+                ForEach(appState.environments) { env in
+                    Button {
+                        appState.selectedEnvironmentId = env.id
+                    } label: {
+                        HStack {
+                            Text(env.name)
+                            if appState.selectedEnvironmentId == env.id {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button("Manage Environments...") {
+                appState.selectedSidebarSection = .environments
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "leaf")
+                Text(appState.selectedEnvironment?.name ?? "No Environment")
+                    .frame(maxWidth: 140, alignment: .leading)
+            }
+            .font(.callout)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .help("Select active environment")
     }
 }
 

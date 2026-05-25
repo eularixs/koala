@@ -42,7 +42,6 @@ private final class MetricsDelegate: NSObject, URLSessionTaskDelegate {
     }
 }
 
-@MainActor
 final class HTTPClientService: ObservableObject {
 
     private let session: URLSession
