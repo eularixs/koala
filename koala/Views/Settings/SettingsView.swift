@@ -1,7 +1,71 @@
 import SwiftUI
 
+// MARK: - SettingsView (native macOS Settings scene tabs)
+
 struct SettingsView: View {
-    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        TabView {
+            GeneralSettingsTab()
+                .tabItem { Label("General", systemImage: "gearshape") }
+            VercelSettingsTab()
+                .tabItem { Label("Vercel", systemImage: "cloud") }
+            AboutSettingsTab()
+                .tabItem { Label("About", systemImage: "info.circle") }
+        }
+        .frame(width: 520, height: 360)
+    }
+}
+
+// MARK: - General
+
+private struct GeneralSettingsTab: View {
+    @AppStorage("EditorFontSize") private var fontSize: Double = 13
+    @AppStorage("EditorFontFamily") private var fontFamily: String = "Monaco"
+    @AppStorage("EditorTabSize") private var tabSize: Int = 2
+    @AppStorage("PreferDarkMode") private var preferDarkMode: Bool = false
+    @AppStorage("ShowResponseTimeline") private var showTimeline: Bool = true
+
+    private let fontFamilies = [
+        "Monaco", "Menlo", "SF Mono", "Courier New", "Andale Mono"
+    ]
+
+    var body: some View {
+        Form {
+            Section("Code Editor") {
+                Picker("Font Family", selection: $fontFamily) {
+                    ForEach(fontFamilies, id: \.self) { f in
+                        Text(f).tag(f).font(.custom(f, size: 13))
+                    }
+                }
+                HStack {
+                    Text("Font Size")
+                    Spacer()
+                    Stepper(value: $fontSize, in: 10...22, step: 1) {
+                        Text("\(Int(fontSize)) pt")
+                            .frame(width: 50, alignment: .trailing)
+                            .monospacedDigit()
+                    }
+                }
+                Picker("Tab Size", selection: $tabSize) {
+                    Text("2 spaces").tag(2)
+                    Text("4 spaces").tag(4)
+                    Text("8 spaces").tag(8)
+                }
+            }
+            Section("Appearance") {
+                Toggle("Always prefer dark mode", isOn: $preferDarkMode)
+            }
+            Section("Response") {
+                Toggle("Show timeline tab", isOn: $showTimeline)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+// MARK: - Vercel
+
+private struct VercelSettingsTab: View {
     @Environment(VercelService.self) private var vercelService
 
     @State private var clientId: String = ""
@@ -11,83 +75,48 @@ struct SettingsView: View {
     @State private var savedFlash: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Settings").font(.title3.weight(.semibold))
-
-            Text("Vercel OAuth")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            Text("Required to create or deploy Mock Servers. Register a Vercel OAuth app at vercel.com/account/integrations and set the redirect URI to:")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text("koala://oauth/callback")
-                .font(.system(.caption, design: .monospaced))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 4))
-
-            VStack(alignment: .leading, spacing: 12) {
-                row("Client ID") {
-                    TextField("", text: $clientId, prompt: Text("vercel_oauth_..."))
-                        .textFieldStyle(.plain)
-                        .font(.system(.body, design: .monospaced))
-                }
-                Divider()
-                row("Client Secret") {
-                    SecureField("", text: $clientSecret, prompt: Text("secret"))
-                        .textFieldStyle(.plain)
-                        .font(.system(.body, design: .monospaced))
-                }
-                Divider()
-                row("Scopes") {
-                    TextField("", text: $scopes, prompt: Text("read:user read:project ..."))
-                        .textFieldStyle(.plain)
-                        .font(.system(.caption, design: .monospaced))
-                }
-            }
-            .padding(12)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
-
-            if let err = saveError {
-                Label(err, systemImage: "exclamationmark.triangle")
+        Form {
+            Section {
+                Text("Required to create or deploy Mock Servers. Register an OAuth app at vercel.com/account/integrations and set the redirect URI to:")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.secondary)
+                Text("koala://oauth/callback")
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
             }
-            if savedFlash {
-                Label("Saved", systemImage: "checkmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.green)
+            Section("Credentials") {
+                TextField("Client ID", text: $clientId, prompt: Text("vercel_oauth_..."))
+                    .font(.system(.body, design: .monospaced))
+                SecureField("Client Secret", text: $clientSecret, prompt: Text("secret"))
+                    .font(.system(.body, design: .monospaced))
+                TextField("Scopes", text: $scopes)
+                    .font(.system(.caption, design: .monospaced))
             }
-
-            HStack {
-                if vercelService.isAuthenticated {
-                    Button("Disconnect Vercel", role: .destructive) {
-                        try? vercelService.logout()
+            Section {
+                HStack {
+                    if vercelService.isAuthenticated {
+                        Button("Disconnect Vercel", role: .destructive) {
+                            try? vercelService.logout()
+                        }
                     }
+                    Spacer()
+                    if savedFlash {
+                        Label("Saved", systemImage: "checkmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
+                    if let err = saveError {
+                        Label(err, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                    Button("Save") { save() }
+                        .buttonStyle(.borderedProminent)
                 }
-                Spacer()
-                Button("Close") { dismiss() }
-                    .keyboardShortcut(.escape, modifiers: [])
-                Button("Save") { save() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.return, modifiers: [])
             }
         }
-        .padding(22)
-        .frame(width: 520)
+        .formStyle(.grouped)
         .onAppear { load() }
-    }
-
-    private func row<C: View>(_ label: String, @ViewBuilder content: () -> C) -> some View {
-        HStack(spacing: 12) {
-            Text(label)
-                .frame(width: 110, alignment: .leading)
-                .foregroundStyle(.secondary)
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 
     private func load() {
@@ -107,5 +136,27 @@ struct SettingsView: View {
         } catch {
             saveError = error.localizedDescription
         }
+    }
+}
+
+// MARK: - About
+
+private struct AboutSettingsTab: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "circle.hexagongrid.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.tint)
+            Text("Koala")
+                .font(.title2.weight(.semibold))
+            Text("Native macOS API client")
+                .foregroundStyle(.secondary)
+            Text("Version 1.0")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
     }
 }

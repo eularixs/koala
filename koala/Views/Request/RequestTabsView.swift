@@ -20,13 +20,15 @@ struct RequestTabsView<Content: View>: View {
                 .frame(height: 1)
             tabContent
         }
-        .onKeyPress(KeyEquivalent("w"), action: {
-            if let id = workspaceState.activeTabId {
-                workspaceState.closeTab(id)
-                return .handled
+        .background(
+            Button("") {
+                if let id = workspaceState.activeTabId {
+                    workspaceState.closeTab(id)
+                }
             }
-            return .ignored
-        })
+            .keyboardShortcut("w", modifiers: .command)
+            .hidden()
+        )
     }
 
     // MARK: - Tab Strip

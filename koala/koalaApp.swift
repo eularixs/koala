@@ -33,5 +33,12 @@ struct koalaApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultSize(width: 880, height: 560)
+
+        // MARK: Settings (native macOS Settings scene, opens via ⌘,)
+        Settings {
+            SettingsView()
+                .environment(container.appState)
+                .environment(container.vercelService)
+        }
     }
 }

@@ -18,9 +18,6 @@ struct MainWindowView: View {
     @State private var exportDocument: KoalaExportDocument? = nil
     @State private var exportFilename: String = "export"
 
-    // MARK: Settings
-    @State private var showSettings = false
-
     // MARK: Project Popover
     @State private var showProjectPopover = false
 
@@ -50,7 +47,7 @@ struct MainWindowView: View {
             ToolbarItem(placement: .navigation) {
                 projectMenu
             }
-            ToolbarItem(placement: .navigation) {
+            ToolbarItem(placement: .primaryAction) {
                 environmentMenu
             }
             ToolbarItem(placement: .primaryAction) {
@@ -77,9 +74,6 @@ struct MainWindowView: View {
         } message: { error in
             Text(error)
         }
-        .sheet(isPresented: $showSettings) {
-            SettingsView()
-        }
     }
 
     // MARK: - Project Menu (gear icon → popover with search)
@@ -88,11 +82,25 @@ struct MainWindowView: View {
         Button {
             showProjectPopover.toggle()
         } label: {
-            Image(systemName: "gearshape")
-                .font(.body)
+            HStack(spacing: 6) {
+                if let hex = appState.activeProject?.color, let col = Color(hex: hex) {
+                    Circle().fill(col).frame(width: 10, height: 10)
+                } else {
+                    Image(systemName: "network")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Text(appState.activeProject?.name ?? "No Project")
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                    .frame(maxWidth: 180, alignment: .leading)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .buttonStyle(.plain)
-        .help("Manage projects")
+        .help("Switch project")
         .popover(isPresented: $showProjectPopover, arrowEdge: .bottom) {
             ProjectSwitcherPopover(
                 showProjectPopover: $showProjectPopover,
@@ -151,27 +159,26 @@ struct MainWindowView: View {
 
     private var fileMenu: some View {
         Menu {
-            Button("Import...") {
+            Button {
                 showImporter = true
+            } label: {
+                Label("Import...", systemImage: "square.and.arrow.down")
             }
-            Menu("Export Active Collection...") {
+            Menu {
                 Button("Postman v2.1") { beginExport(.postman) }
                 Button("OpenAPI 3.0") { beginExport(.openapi) }
                 Button("Markdown") { beginExport(.markdown) }
                 Button("Koala Native") { beginExport(.koalaNative) }
+            } label: {
+                Label("Export Active Collection...", systemImage: "square.and.arrow.up")
             }
             .disabled(appState.collections.isEmpty)
-            Divider()
-            Button {
-                showSettings = true
-            } label: {
-                Label("Settings...", systemImage: "gear")
-            }
-            .keyboardShortcut(",", modifiers: .command)
         } label: {
-            Label("File", systemImage: "doc")
+            Image(systemName: "ellipsis.circle")
+                .font(.body)
         }
-        .help("Import, export, settings")
+        .menuIndicator(.hidden)
+        .help("Import / export")
     }
 
     // MARK: - Import

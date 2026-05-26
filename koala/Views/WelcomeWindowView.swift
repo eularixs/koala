@@ -6,6 +6,7 @@ struct WelcomeWindowView: View {
     @Environment(ImportExportService.self) private var importExportService
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.openSettings) private var openSettings
 
     /// Called after the user picks or creates a project.
     /// The Bool argument is ignored — kept for call-site compatibility.
@@ -130,7 +131,7 @@ struct WelcomeWindowView: View {
                 .controlSize(.large)
 
                 Button {
-                    showSettings = true
+                    openSettings()
                 } label: {
                     Label("Settings", systemImage: "gear")
                         .frame(maxWidth: .infinity)
