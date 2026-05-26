@@ -59,6 +59,8 @@ struct KoalaRequest: Identifiable, Codable, Hashable {
     var body: RequestBody
     var preRequestScript: String?
     var testScript: String?
+    /// Whether this request is served from the mock endpoint instead of the live URL.
+    var isMock: Bool
     var createdAt: Date
     var updatedAt: Date
 
@@ -73,6 +75,7 @@ struct KoalaRequest: Identifiable, Codable, Hashable {
         body: RequestBody = .none,
         preRequestScript: String? = nil,
         testScript: String? = nil,
+        isMock: Bool = false,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -86,8 +89,32 @@ struct KoalaRequest: Identifiable, Codable, Hashable {
         self.body = body
         self.preRequestScript = preRequestScript
         self.testScript = testScript
+        self.isMock = isMock
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    // MARK: Backwards-compatible decode — isMock defaults to false for older data
+    enum CodingKeys: String, CodingKey {
+        case id, name, method, url, queryParams, headers, auth, body
+        case preRequestScript, testScript, isMock, createdAt, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        method = try c.decode(HTTPMethodValue.self, forKey: .method)
+        url = try c.decode(String.self, forKey: .url)
+        queryParams = (try? c.decode([KeyValuePair].self, forKey: .queryParams)) ?? []
+        headers = (try? c.decode([KeyValuePair].self, forKey: .headers)) ?? []
+        auth = (try? c.decode(AuthConfig.self, forKey: .auth)) ?? .none
+        body = (try? c.decode(RequestBody.self, forKey: .body)) ?? .none
+        preRequestScript = try? c.decodeIfPresent(String.self, forKey: .preRequestScript)
+        testScript = try? c.decodeIfPresent(String.self, forKey: .testScript)
+        isMock = (try? c.decodeIfPresent(Bool.self, forKey: .isMock)) ?? false
+        createdAt = (try? c.decode(Date.self, forKey: .createdAt)) ?? Date()
+        updatedAt = (try? c.decode(Date.self, forKey: .updatedAt)) ?? Date()
     }
 
     static var empty: KoalaRequest { KoalaRequest() }

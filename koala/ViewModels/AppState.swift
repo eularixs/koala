@@ -392,6 +392,29 @@ final class AppState {
         saveActiveProject()
     }
 
+    // MARK: - Mock Environment
+
+    /// Ensures a "Mock Cloud" environment exists for the given project.
+    /// Called after loading project slices.
+    func ensureMockEnvironment(forProject id: UUID) {
+        let hasMock = (environmentsByProject[id] ?? []).contains(where: { $0.name == "Mock Cloud" })
+        guard !hasMock else { return }
+
+        let mockEnv = KoalaEnvironment(
+            projectId: id,
+            name: "Mock Cloud",
+            color: "#22B8CF",
+            variables: [
+                EnvVariable(key: "MOCK_BASE_URL", value: "https://koala-mock.vercel.app", isEnabled: true)
+            ]
+        )
+        if environmentsByProject[id] == nil {
+            environmentsByProject[id] = []
+        }
+        environmentsByProject[id]!.append(mockEnv)
+        try? persistence.saveEnvironments(environmentsByProject[id]!, forProject: id)
+    }
+
     // MARK: Private Helpers
 
     private func loadProjectSlices(_ id: UUID) {
@@ -399,6 +422,7 @@ final class AppState {
         environmentsByProject[id] = (try? persistence.loadEnvironments(forProject: id)) ?? []
         globalsByProject[id] = (try? persistence.loadGlobals(forProject: id)) ?? []
         mockServersByProject[id] = (try? persistence.loadMockServers(forProject: id)) ?? []
+        ensureMockEnvironment(forProject: id)
     }
 
     func saveActiveProject() {

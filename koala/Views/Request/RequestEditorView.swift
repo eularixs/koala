@@ -2,11 +2,12 @@ import SwiftUI
 
 // MARK: - RequestEditorTab
 
-private enum RequestEditorTab: String, CaseIterable, Identifiable {
+enum RequestEditorTab: String, CaseIterable, Identifiable {
     case params  = "Params"
     case headers = "Headers"
     case body    = "Body"
     case auth    = "Auth"
+    case mock    = "Mock"
 
     var id: String { rawValue }
 }
@@ -98,12 +99,31 @@ struct RequestEditorView: View {
 
     @ViewBuilder
     private var requestTabContent: some View {
-        ScrollView {
-            switch selectedRequestEditorTab {
-            case .params:  ParamsEditorView(request: $tab.request)
-            case .headers: HeadersEditorView(request: $tab.request)
-            case .body:    BodyEditorView(request: $tab.request)
-            case .auth:    AuthEditorView(request: $tab.request)
+        // IMPORTANT: No outer ScrollView here — BodyEditorView hosts an NSScrollView
+        // via CodeTextView. Nesting NSScrollView inside SwiftUI ScrollView tears down
+        // the ViewBridge (crash). Each editor manages its own scrolling internally.
+        switch selectedRequestEditorTab {
+        case .params:
+            ScrollView {
+                ParamsEditorView(request: $tab.request)
+                    .frame(maxWidth: .infinity, alignment: .top)
+            }
+        case .headers:
+            ScrollView {
+                HeadersEditorView(request: $tab.request)
+                    .frame(maxWidth: .infinity, alignment: .top)
+            }
+        case .body:
+            BodyEditorView(request: $tab.request)
+        case .auth:
+            ScrollView {
+                AuthEditorView(request: $tab.request)
+                    .frame(maxWidth: .infinity, alignment: .top)
+            }
+        case .mock:
+            ScrollView {
+                MockSettingsEditorView(request: $tab.request)
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
         }
     }

@@ -16,6 +16,7 @@ struct MockServerListView: View {
             Divider()
             addButton
         }
+        .background(Color.clear)
         .sheet(isPresented: $showingSetup) {
             MockServerSetupView()
         }

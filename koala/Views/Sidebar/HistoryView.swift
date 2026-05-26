@@ -21,8 +21,11 @@ struct HistoryView: View {
                     }
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
             }
         }
+        .background(Color.clear)
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 Button(role: .destructive) { historyService.clear() } label: {

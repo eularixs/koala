@@ -41,11 +41,11 @@ struct KeyValueEditorView: View {
             Spacer().frame(width: 8)
             Text(keyPlaceholder)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Divider().frame(height: 16)
+            columnDivider
             Text(valuePlaceholder)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if showDescription {
-                Divider().frame(height: 16)
+                columnDivider
                 Text("Description")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -56,6 +56,13 @@ struct KeyValueEditorView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(Color.secondary.opacity(0.05))
+    }
+
+    private var columnDivider: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.2))
+            .frame(width: 0.5)
+            .frame(maxHeight: .infinity)
     }
 
     private var addButton: some View {
@@ -110,13 +117,13 @@ private struct KeyValueRowView: View {
                 .frame(maxWidth: .infinity)
                 .onChange(of: item.key) { _, _ in onKeyChange() }
 
-            Divider().frame(height: 20)
+            rowColumnDivider
 
             valueField
                 .frame(maxWidth: .infinity)
 
             if showDescription {
-                Divider().frame(height: 20)
+                rowColumnDivider
                 TextField("Description", text: $item.description)
                     .textFieldStyle(.plain)
                     .frame(maxWidth: .infinity)
@@ -132,8 +139,15 @@ private struct KeyValueRowView: View {
                 .frame(width: 28)
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .opacity(item.isEnabled ? 1.0 : 0.5)
+    }
+
+    private var rowColumnDivider: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.2))
+            .frame(width: 0.5)
+            .frame(maxHeight: .infinity)
     }
 
     @ViewBuilder

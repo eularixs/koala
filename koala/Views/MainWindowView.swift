@@ -21,6 +21,12 @@ struct MainWindowView: View {
     // MARK: Settings
     @State private var showSettings = false
 
+    // MARK: Project Popover
+    @State private var showProjectPopover = false
+
+    // MARK: openWindow environment
+    @Environment(\.openWindow) private var openWindow
+
     var body: some View {
         @Bindable var state = appState
         NavigationSplitView {
@@ -76,39 +82,27 @@ struct MainWindowView: View {
         }
     }
 
-    // MARK: - Project Menu (gear icon "Manage Projects")
+    // MARK: - Project Menu (gear icon → popover with search)
 
     private var projectMenu: some View {
-        Menu {
-            Section("Switch Project") {
-                ForEach(appState.projects) { project in
-                    Button {
-                        appState.switchProject(to: project.id)
-                    } label: {
-                        HStack {
-                            if let hex = project.color, let col = Color(hex: hex) {
-                                Circle().fill(col).frame(width: 10, height: 10)
-                            }
-                            Text(project.name)
-                            if appState.activeProjectId == project.id {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            }
-            Divider()
-            Button {
-                onReturnToWelcome()
-            } label: {
-                Label("Manage Projects", systemImage: "gearshape")
-            }
+        Button {
+            showProjectPopover.toggle()
         } label: {
             Image(systemName: "gearshape")
                 .font(.body)
         }
-        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
         .help("Manage projects")
+        .popover(isPresented: $showProjectPopover, arrowEdge: .bottom) {
+            ProjectSwitcherPopover(
+                showProjectPopover: $showProjectPopover,
+                onManageProjects: {
+                    showProjectPopover = false
+                    openWindow(id: "welcome")
+                }
+            )
+            .environment(appState)
+        }
     }
 
     // MARK: - Environment Menu
@@ -224,6 +218,106 @@ struct MainWindowView: View {
         case .markdown: return .plainText
         default: return .json
         }
+    }
+}
+
+// MARK: - ProjectSwitcherPopover
+
+private struct ProjectSwitcherPopover: View {
+    @Environment(AppState.self) private var appState
+    @Binding var showProjectPopover: Bool
+    let onManageProjects: () -> Void
+
+    @State private var search: String = ""
+
+    private var filtered: [Project] {
+        let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return appState.projects }
+        return appState.projects.filter {
+            $0.name.lowercased().contains(needle) || $0.slug.lowercased().contains(needle)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            searchField
+            Divider()
+            projectList
+            Divider()
+            manageRow
+        }
+        .frame(width: 280)
+        .frame(maxHeight: 320)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .font(.caption)
+            TextField("Search projects", text: $search)
+                .textFieldStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
+    private var projectList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(filtered) { project in
+                    projectRow(project)
+                    if project.id != filtered.last?.id {
+                        Divider().padding(.leading, 32)
+                    }
+                }
+            }
+        }
+    }
+
+    private func projectRow(_ project: Project) -> some View {
+        Button {
+            appState.switchProject(to: project.id)
+            showProjectPopover = false
+        } label: {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(Color(hex: project.color ?? "") ?? .secondary.opacity(0.4))
+                    .frame(width: 10, height: 10)
+                Text(project.name)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer()
+                if appState.activeProjectId == project.id {
+                    Image(systemName: "checkmark")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var manageRow: some View {
+        Button(action: onManageProjects) {
+            HStack(spacing: 8) {
+                Image(systemName: "gearshape")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("Manage Projects")
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

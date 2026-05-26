@@ -4,8 +4,12 @@ import UniformTypeIdentifiers
 struct WelcomeWindowView: View {
     @Environment(AppState.self) private var appState
     @Environment(ImportExportService.self) private var importExportService
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismissWindow) private var dismissWindow
 
-    let onPicked: () -> Void
+    /// Called after the user picks or creates a project.
+    /// The Bool argument is ignored — kept for call-site compatibility.
+    let onPicked: (Bool) -> Void
 
     @State private var showCreateSheet = false
     @State private var editingProject: Project? = nil
@@ -58,7 +62,8 @@ struct WelcomeWindowView: View {
                     appState.setGroupName(group, for: created.id)
                     appState.switchProject(to: created.id)
                     showCreateSheet = false
-                    onPicked()
+                    dismissWindow(id: "welcome")
+                    onPicked(true)
                 },
                 onCancel: { showCreateSheet = false }
             )
@@ -296,7 +301,8 @@ struct WelcomeWindowView: View {
 
     private func openProject(_ project: Project) {
         appState.switchProject(to: project.id)
-        onPicked()
+        dismissWindow(id: "welcome")
+        onPicked(true)
     }
 
     private func handleImport(_ result: Result<[URL], Error>) {
@@ -310,7 +316,8 @@ struct WelcomeWindowView: View {
             appState.switchProject(to: project.id)
             do {
                 try importExportService.importFile(at: url, into: project.id, appState: appState)
-                onPicked()
+                dismissWindow(id: "welcome")
+                onPicked(true)
             } catch {
                 importError = error.localizedDescription
                 showImportError = true

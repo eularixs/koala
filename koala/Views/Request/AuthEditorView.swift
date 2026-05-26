@@ -75,6 +75,26 @@ struct AuthEditorView: View {
         }
     }
 
+    // MARK: - Settings-style row helper
+
+    @ViewBuilder
+    private func settingsRow<C: View>(_ label: String, @ViewBuilder content: () -> C) -> some View {
+        HStack(spacing: 12) {
+            Text(label)
+                .frame(width: 160, alignment: .leading)
+                .foregroundStyle(.primary)
+            content()
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    /// Wraps rows in a grouped container with full-height dividers between them.
+    private func settingsGroup<C: View>(@ViewBuilder content: () -> C) -> some View {
+        _SettingsGroupView(content: content)
+    }
+
     // MARK: - Bearer
 
     @ViewBuilder
@@ -83,13 +103,13 @@ struct AuthEditorView: View {
             get: { if case .bearer(let t) = request.auth { return t } else { return token } },
             set: { request.auth = .bearer(token: $0) }
         )
-        Form {
-            LabeledContent("Token") {
-                SecureField("", text: binding, prompt: Text("Bearer token"))
-                    .textFieldStyle(.roundedBorder)
+        settingsGroup {
+            settingsRow("Token") {
+                SecureField("Bearer token", text: binding)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
             }
         }
-        .formStyle(.grouped)
     }
 
     // MARK: - Basic
@@ -104,17 +124,19 @@ struct AuthEditorView: View {
             get: { if case .basic(_, let p) = request.auth { return p } else { return password } },
             set: { p in if case .basic(let u, _) = request.auth { request.auth = .basic(username: u, password: p) } }
         )
-        Form {
-            LabeledContent("Username") {
-                TextField("", text: usernameBinding, prompt: Text("username"))
-                    .textFieldStyle(.roundedBorder)
+        settingsGroup {
+            settingsRow("Username") {
+                TextField("username", text: usernameBinding)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
             }
-            LabeledContent("Password") {
-                SecureField("", text: passwordBinding, prompt: Text("password"))
-                    .textFieldStyle(.roundedBorder)
+            Divider().padding(.leading, 14)
+            settingsRow("Password") {
+                SecureField("password", text: passwordBinding)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
             }
         }
-        .formStyle(.grouped)
     }
 
     // MARK: - API Key
@@ -133,16 +155,20 @@ struct AuthEditorView: View {
             get: { if case .apiKey(_, _, let l) = request.auth { return l } else { return location } },
             set: { l in if case .apiKey(let k, let v, _) = request.auth { request.auth = .apiKey(key: k, value: v, location: l) } }
         )
-        Form {
-            LabeledContent("Key") {
-                TextField("", text: keyBinding, prompt: Text("X-API-Key"))
-                    .textFieldStyle(.roundedBorder)
+        settingsGroup {
+            settingsRow("Key") {
+                TextField("X-API-Key", text: keyBinding)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
             }
-            LabeledContent("Value") {
-                SecureField("", text: valueBinding, prompt: Text("api_key_value"))
-                    .textFieldStyle(.roundedBorder)
+            Divider().padding(.leading, 14)
+            settingsRow("Value") {
+                SecureField("api_key_value", text: valueBinding)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
             }
-            LabeledContent("Add To") {
+            Divider().padding(.leading, 14)
+            settingsRow("Add To") {
                 Picker("Location", selection: locationBinding) {
                     ForEach(APIKeyLocation.allCases) { loc in
                         Text(loc.displayName).tag(loc)
@@ -152,7 +178,6 @@ struct AuthEditorView: View {
                 .fixedSize()
             }
         }
-        .formStyle(.grouped)
     }
 
     // MARK: - OAuth 2.0
@@ -191,29 +216,37 @@ struct AuthEditorView: View {
             .padding(8)
             .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
 
-            Form {
-                LabeledContent("Client ID") {
-                    TextField("", text: clientId, prompt: Text("client_id"))
-                        .textFieldStyle(.roundedBorder)
+            settingsGroup {
+                settingsRow("Client ID") {
+                    TextField("client_id", text: clientId)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
                 }
-                LabeledContent("Client Secret") {
-                    SecureField("", text: clientSecret, prompt: Text("client_secret"))
-                        .textFieldStyle(.roundedBorder)
+                Divider().padding(.leading, 14)
+                settingsRow("Client Secret") {
+                    SecureField("client_secret", text: clientSecret)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
                 }
-                LabeledContent("Auth URL") {
-                    TextField("", text: authURL, prompt: Text("https://"))
-                        .textFieldStyle(.roundedBorder)
+                Divider().padding(.leading, 14)
+                settingsRow("Auth URL") {
+                    TextField("https://", text: authURL)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
                 }
-                LabeledContent("Token URL") {
-                    TextField("", text: tokenURL, prompt: Text("https://"))
-                        .textFieldStyle(.roundedBorder)
+                Divider().padding(.leading, 14)
+                settingsRow("Token URL") {
+                    TextField("https://", text: tokenURL)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
                 }
-                LabeledContent("Scope") {
-                    TextField("", text: scope, prompt: Text("read write"))
-                        .textFieldStyle(.roundedBorder)
+                Divider().padding(.leading, 14)
+                settingsRow("Scope") {
+                    TextField("read write", text: scope)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
                 }
             }
-            .formStyle(.grouped)
         }
     }
 
@@ -238,25 +271,31 @@ struct AuthEditorView: View {
             set: { v in if case .awsSignature(var c) = request.auth { c.service = v; request.auth = .awsSignature(c) } }
         )
 
-        Form {
-            LabeledContent("Access Key ID") {
-                TextField("", text: accessKey, prompt: Text("AKIAIOSFODNN7EXAMPLE"))
-                    .textFieldStyle(.roundedBorder)
+        settingsGroup {
+            settingsRow("Access Key ID") {
+                TextField("AKIAIOSFODNN7EXAMPLE", text: accessKey)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
             }
-            LabeledContent("Secret Access Key") {
-                SecureField("", text: secretKey, prompt: Text("wJalrXUtnFEMI/K7MDENG"))
-                    .textFieldStyle(.roundedBorder)
+            Divider().padding(.leading, 14)
+            settingsRow("Secret Access Key") {
+                SecureField("wJalrXUtnFEMI/K7MDENG", text: secretKey)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
             }
-            LabeledContent("Region") {
-                TextField("", text: region, prompt: Text("us-east-1"))
-                    .textFieldStyle(.roundedBorder)
+            Divider().padding(.leading, 14)
+            settingsRow("Region") {
+                TextField("us-east-1", text: region)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
             }
-            LabeledContent("Service") {
-                TextField("", text: service, prompt: Text("execute-api"))
-                    .textFieldStyle(.roundedBorder)
+            Divider().padding(.leading, 14)
+            settingsRow("Service") {
+                TextField("execute-api", text: service)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
             }
         }
-        .formStyle(.grouped)
     }
 
     // MARK: - Helpers
@@ -284,6 +323,24 @@ struct AuthEditorView: View {
     }
 }
 
+// MARK: - _SettingsGroupView
+
+/// Wraps content in a rounded grouped container (Apple Settings style).
+private struct _SettingsGroupView<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            content
+        }
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 0.5)
+        )
+    }
+}
+
 // MARK: - Preview
 
 #Preview("AuthEditorView — Bearer") {
@@ -293,5 +350,10 @@ struct AuthEditorView: View {
 
 #Preview("AuthEditorView — Basic") {
     @Previewable @State var request = KoalaRequest(auth: .basic(username: "", password: ""))
+    return AuthEditorView(request: $request).frame(width: 600).padding()
+}
+
+#Preview("AuthEditorView — AWS") {
+    @Previewable @State var request = KoalaRequest(auth: .awsSignature(.empty))
     return AuthEditorView(request: $request).frame(width: 600).padding()
 }

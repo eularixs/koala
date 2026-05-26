@@ -31,7 +31,10 @@ struct EnvironmentListView: View {
                 .onDelete { offsets in deleteEnvironments(at: offsets) }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
         }
+        .background(Color.clear)
         .sheet(item: $sheetTarget) { target in
             sheetContent(for: target)
         }

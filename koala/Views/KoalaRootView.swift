@@ -1,43 +1,33 @@
 import SwiftUI
 
 struct KoalaRootView: View {
-    @State private var appState = AppState()
-    @State private var workspaceState = WorkspaceState()
-    @State private var historyService = HistoryService()
-    @State private var importExportService = ImportExportService()
-    @State private var vercelService = VercelService()
-    @State private var mockServerService: MockServerService = MockServerService(vercelService: VercelService())
+    @Environment(AppState.self) private var appState
+    @Environment(HistoryService.self) private var historyService
+    @Environment(VercelService.self) private var vercelService
+    @Environment(MockServerService.self) private var mockServerService
 
-    @State private var showWelcome: Bool = true
+    @Environment(\.openWindow) private var openWindow
+
     @State private var loaded: Bool = false
 
     var body: some View {
-        Group {
-            if showWelcome {
-                WelcomeWindowView(onPicked: { showWelcome = false })
-                    .frame(width: 880, height: 560)
-            } else {
-                MainWindowView(onReturnToWelcome: {
-                    showWelcome = true
-                })
-                .frame(
-                    minWidth: 960, idealWidth: 1280, maxWidth: .infinity,
-                    minHeight: 600, idealHeight: 800, maxHeight: .infinity
-                )
-            }
-        }
-        .environment(appState)
-        .environment(workspaceState)
-        .environment(historyService)
-        .environment(importExportService)
-        .environment(vercelService)
-        .environment(mockServerService)
+        MainWindowView(onReturnToWelcome: {
+            openWindow(id: "welcome")
+        })
+        .frame(
+            minWidth: 960, idealWidth: 1280, maxWidth: .infinity,
+            minHeight: 600, idealHeight: 800, maxHeight: .infinity
+        )
         .task {
             guard !loaded else { return }
             appState.loadFromDisk()
             historyService.loadForProject(appState.activeProjectId)
-            mockServerService = MockServerService(vercelService: vercelService)
             loaded = true
+
+            // If no projects exist after loading, open the welcome window
+            if appState.projects.isEmpty {
+                openWindow(id: "welcome")
+            }
         }
         .onChange(of: appState.activeProjectId) { _, newId in
             historyService.loadForProject(newId)

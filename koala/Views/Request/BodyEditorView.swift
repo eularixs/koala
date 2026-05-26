@@ -296,9 +296,9 @@ private struct MultipartTableView: View {
             Text("").frame(width: 24)
             Spacer().frame(width: 8)
             Text("Key").frame(maxWidth: .infinity, alignment: .leading)
-            Divider().frame(height: 16)
+            columnDivider
             Text("Value").frame(maxWidth: .infinity, alignment: .leading)
-            Divider().frame(height: 16)
+            columnDivider
             Text("Type").frame(width: 60, alignment: .leading)
             Spacer().frame(width: 28)
         }
@@ -307,6 +307,13 @@ private struct MultipartTableView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(Color.secondary.opacity(0.05))
+    }
+
+    private var columnDivider: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.2))
+            .frame(width: 0.5)
+            .frame(maxHeight: .infinity)
     }
 
     private var addButton: some View {
@@ -374,12 +381,12 @@ private struct MultipartRowView: View {
                 .frame(maxWidth: .infinity)
                 .onChange(of: item.key) { _, _ in onKeyChange() }
 
-            Divider().frame(height: 20)
+            rowColumnDivider
 
             valueCell
                 .frame(maxWidth: .infinity)
 
-            Divider().frame(height: 20)
+            rowColumnDivider
 
             typePicker
                 .frame(width: 60)
@@ -387,8 +394,15 @@ private struct MultipartRowView: View {
             deleteButton.frame(width: 28)
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .opacity(item.isEnabled ? 1.0 : 0.5)
+    }
+
+    private var rowColumnDivider: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.2))
+            .frame(width: 0.5)
+            .frame(maxHeight: .infinity)
     }
 
     @ViewBuilder
