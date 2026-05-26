@@ -37,9 +37,12 @@ struct VercelDeploymentFile: Codable {
 // MARK: - VercelDeploymentPayload
 
 struct VercelDeploymentPayload: Codable {
-    let name: String
-    let files: [VercelDeploymentFile]
-    let projectSettings: [String: String]
+    var name: String
+    var files: [VercelDeploymentFile]
+    var projectSettings: [String: String]
+    /// Vercel project ID this deployment belongs to. Required by /v13/deployments to link.
+    var project: String?
+    var target: String?
 
     // Builds the deployment payload for a mock server project.
     static func forMockServer(serverId: String, projectSlug: String, projectName: String) -> VercelDeploymentPayload {
@@ -54,7 +57,9 @@ struct VercelDeploymentPayload: Codable {
         return VercelDeploymentPayload(
             name: projectName,
             files: files,
-            projectSettings: ["framework": "nextjs", "buildCommand": "npm run build"]
+            projectSettings: ["framework": "nextjs", "buildCommand": "npm run build"],
+            project: nil,
+            target: "production"
         )
     }
 }
@@ -78,7 +83,10 @@ final class VercelService {
     private(set) var currentUser: VercelUser?
     private(set) var isLoading = false
 
-    var isAuthenticated: Bool { token != nil }
+    var isAuthenticated: Bool { effectiveAccessToken != nil }
+
+    /// Personal Access Token entered by user. Takes precedence over OAuth flow.
+    private(set) var personalAccessToken: String?
 
     // MARK: Private
 
@@ -86,8 +94,17 @@ final class VercelService {
         didSet { persistToken() }
     }
 
+    /// Returns whichever access token should be used for API calls (PAT preferred).
+    private var effectiveAccessToken: String? {
+        if let pat = personalAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines), !pat.isEmpty {
+            return pat
+        }
+        return token?.accessToken
+    }
+
     private let keychain = KeychainService.shared
     private let keychainKey = "vercel.oauth.token"
+    private let patKeychainKey = "vercel.personalAccessToken"
     private let baseURL = "https://api.vercel.com"
     private let oauthTokenURL = "https://api.vercel.com/v2/oauth/access_token"
     private let oauthAuthorizeURL = "https://vercel.com/oauth/authorize"
@@ -97,6 +114,24 @@ final class VercelService {
 
     init() {
         loadTokenFromKeychain()
+        loadPATFromKeychain()
+    }
+
+    // MARK: - Personal Access Token
+
+    func setPersonalAccessToken(_ token: String?) throws {
+        let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let t = trimmed, !t.isEmpty {
+            try keychain.set(t, for: patKeychainKey)
+            personalAccessToken = t
+        } else {
+            try? keychain.delete(patKeychainKey)
+            personalAccessToken = nil
+        }
+    }
+
+    private func loadPATFromKeychain() {
+        personalAccessToken = try? keychain.string(for: patKeychainKey)
     }
 
     // MARK: - OAuth Config
@@ -164,8 +199,10 @@ final class VercelService {
     }
 
     func logout() throws {
-        try keychain.delete(keychainKey)
+        try? keychain.delete(keychainKey)
+        try? keychain.delete(patKeychainKey)
         token = nil
+        personalAccessToken = nil
         currentUser = nil
     }
 
@@ -185,7 +222,30 @@ final class VercelService {
     func createProject(name: String) async throws -> VercelProject {
         let body = ["name": name, "framework": "nextjs"]
         let data = try await apiRequest(path: "/v9/projects", method: "POST", body: body)
-        return try decode(VercelProject.self, from: data)
+        return try parseVercelProject(from: data)
+    }
+
+    /// Disables Vercel deployment protection (SSO) so mock endpoints are publicly reachable.
+    func disableDeploymentProtection(projectId: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["ssoProtection": NSNull()])
+        _ = try await apiRawRequest(path: "/v9/projects/\(projectId)", method: "PATCH", rawBody: body)
+    }
+
+    private func parseVercelProject(from data: Data) throws -> VercelProject {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let preview = String(data: data.prefix(1200), encoding: .utf8) ?? "<non-utf8>"
+            throw VercelError.decoding(NSError(domain: "VercelParse", code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "Project response not JSON object — raw body: \(preview)"]))
+        }
+        guard let id = json["id"] as? String, let name = json["name"] as? String else {
+            let preview = String(data: data.prefix(1200), encoding: .utf8) ?? "<non-utf8>"
+            throw VercelError.decoding(NSError(domain: "VercelParse", code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "Project response missing id/name — raw body: \(preview)"]))
+        }
+        var framework: String? = nil
+        if let s = json["framework"] as? String { framework = s }
+        else if let obj = json["framework"] as? [String: Any], let slug = obj["slug"] as? String { framework = slug }
+        return VercelProject(id: id, name: name, framework: framework)
     }
 
     func deleteProject(id: String) async throws {
@@ -202,29 +262,129 @@ final class VercelService {
     // MARK: - Deployments
 
     func deployMockServer(projectId: String, payload: VercelDeploymentPayload) async throws -> Deployment {
+        var p = payload
+        p.project = projectId
         let encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        let bodyData = try encoder.encode(payload)
-        let body = String(data: bodyData, encoding: .utf8) ?? "{}"
+        // Vercel API uses camelCase — do NOT convert to snake_case.
+        let bodyData = try encoder.encode(p)
         let data = try await apiRawRequest(path: "/v13/deployments", method: "POST", rawBody: bodyData)
-        return try decode(Deployment.self, from: data)
+        return try parseDeployment(from: data)
+    }
+
+    private func parseDeployment(from data: Data) throws -> Deployment {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let preview = String(data: data.prefix(1200), encoding: .utf8) ?? "<non-utf8>"
+            throw VercelError.decoding(NSError(domain: "VercelParse", code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "Deployment response not JSON object — raw body: \(preview)"]))
+        }
+        let id = (json["id"] as? String) ?? (json["uid"] as? String) ?? ""
+        guard !id.isEmpty else {
+            let preview = String(data: data.prefix(1200), encoding: .utf8) ?? "<non-utf8>"
+            throw VercelError.decoding(NSError(domain: "VercelParse", code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "Deployment response missing id/uid — raw body: \(preview)"]))
+        }
+        let url = (json["url"] as? String) ?? ""
+        let aliases = (json["alias"] as? [String]) ?? (json["automaticAliases"] as? [String]) ?? []
+        let stateStr = (json["state"] as? String) ?? (json["readyState"] as? String) ?? "QUEUED"
+        let state = DeploymentStatus(rawValue: stateStr) ?? .queued
+        return Deployment(id: id, url: url, aliases: aliases, state: state)
     }
 
     func getDeploymentStatus(id: String) async throws -> DeploymentStatus {
         let data = try await apiRequest(path: "/v13/deployments/\(id)", method: "GET", body: nil as String?)
-        struct DeploymentResponse: Decodable { let state: DeploymentStatus }
-        let response = try decode(DeploymentResponse.self, from: data)
-        return response.state
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .queued
+        }
+        let stateStr = (json["state"] as? String) ?? (json["readyState"] as? String) ?? "QUEUED"
+        return DeploymentStatus(rawValue: stateStr) ?? .queued
     }
 
-    // MARK: - KV
+    // MARK: - Edge Config
+
+    /// Lists all Edge Configs accessible to the current token.
+    func listEdgeConfigs() async throws -> [(id: String, slug: String)] {
+        let data = try await apiRequest(path: "/v1/edge-config", method: "GET", body: nil as String?)
+        guard let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+        return arr.compactMap {
+            guard let id = $0["id"] as? String, let slug = $0["slug"] as? String else { return nil }
+            return (id, slug)
+        }
+    }
+
+    /// Creates a new Vercel Edge Config store and returns its ID.
+    func createEdgeConfig(slug: String) async throws -> String {
+        let body = ["slug": slug]
+        let data = try await apiRequest(path: "/v1/edge-config", method: "POST", body: body)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let id = json["id"] as? String else {
+            throw VercelError.decoding(NSError(domain: "EdgeConfig", code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "createEdgeConfig: missing id"]))
+        }
+        return id
+    }
+
+    /// Returns first existing token for given config, or creates a new one.
+    /// Token includes read-access connection string used as `EDGE_CONFIG` env var.
+    func ensureEdgeConfigToken(configId: String, label: String = "koala-read") async throws -> String {
+        // List existing tokens
+        let listData = try await apiRequest(path: "/v1/edge-config/\(configId)/tokens", method: "GET", body: nil as String?)
+        if let arr = try? JSONSerialization.jsonObject(with: listData) as? [[String: Any]],
+           let first = arr.first,
+           let token = first["token"] as? String {
+            return "https://edge-config.vercel.com/\(configId)?token=\(token)"
+        }
+        // Create new
+        let body = ["label": label]
+        let createData = try await apiRequest(path: "/v1/edge-config/\(configId)/token", method: "POST", body: body)
+        guard let json = try? JSONSerialization.jsonObject(with: createData) as? [String: Any],
+              let token = json["token"] as? String else {
+            throw VercelError.decoding(NSError(domain: "EdgeConfig", code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "createEdgeConfigToken: missing token"]))
+        }
+        return "https://edge-config.vercel.com/\(configId)?token=\(token)"
+    }
+
+    /// Upserts/deletes Edge Config items. Each item: {operation, key, value}.
+    func setEdgeConfigItems(_ items: [(key: String, value: Any)], configId: String) async throws {
+        let payload: [String: Any] = [
+            "items": items.map { ["operation": "upsert", "key": $0.key, "value": $0.value] }
+        ]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        _ = try await apiRawRequest(path: "/v1/edge-config/\(configId)/items", method: "PATCH", rawBody: body)
+    }
+
+    // MARK: - Project Env Vars
+
+    /// Sets (or upserts) an environment variable on a Vercel project.
+    func setProjectEnvVar(projectId: String, key: String, value: String, targets: [String] = ["production", "preview", "development"]) async throws {
+        let body: [String: Any] = [
+            "key": key,
+            "value": value,
+            "target": targets,
+            "type": "encrypted"
+        ]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        // upsert=true is needed via query param to update existing
+        _ = try await apiRawRequest(path: "/v10/projects/\(projectId)/env?upsert=true", method: "POST", rawBody: data)
+    }
+
+    // MARK: - Deployments listing
+
+    /// Returns deployment IDs for a project. Used to check if project has been deployed at all.
+    func listDeployments(projectId: String, limit: Int = 1) async throws -> [String] {
+        let data = try await apiRequest(path: "/v6/deployments?projectId=\(projectId)&limit=\(limit)", method: "GET", body: nil as String?)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let deps = json["deployments"] as? [[String: Any]] else { return [] }
+        return deps.compactMap { ($0["uid"] as? String) ?? ($0["id"] as? String) }
+    }
+
+    // MARK: - KV (legacy compat — wraps Edge Config)
 
     func kvSet(key: String, value: some Encodable, kvId: String?) async throws {
-        guard let kvId else { throw VercelError.notConfigured("KV store ID not set") }
+        guard let configId = kvId else { throw VercelError.notConfigured("Edge Config ID not set") }
         let encoded = try JSONEncoder().encode(value)
-        let valueStr = String(data: encoded, encoding: .utf8) ?? "null"
-        let body: [String: String] = ["key": key, "value": valueStr]
-        _ = try await apiRequest(path: "/v1/edge-config/\(kvId)/items", method: "PATCH", body: body)
+        let jsonValue = try JSONSerialization.jsonObject(with: encoded)
+        try await setEdgeConfigItems([(key: key, value: jsonValue)], configId: configId)
     }
 
     func kvGet<T: Codable>(key: String, type: T.Type, kvId: String?) async throws -> T? {
@@ -300,10 +460,10 @@ final class VercelService {
     }
 
     private func apiRequest<B: Encodable>(path: String, method: String, body: B?) async throws -> Data {
-        guard let t = token else { throw VercelError.oauth("Not authenticated") }
+        guard let accessToken = effectiveAccessToken else { throw VercelError.oauth("Not authenticated") }
         var request = URLRequest(url: URL(string: baseURL + path)!)
         request.httpMethod = method
-        request.setValue("Bearer \(t.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let body {
             request.httpBody = try JSONEncoder().encode(body)
@@ -314,10 +474,10 @@ final class VercelService {
     }
 
     private func apiRawRequest(path: String, method: String, rawBody: Data?) async throws -> Data {
-        guard let t = token else { throw VercelError.oauth("Not authenticated") }
+        guard let accessToken = effectiveAccessToken else { throw VercelError.oauth("Not authenticated") }
         var request = URLRequest(url: URL(string: baseURL + path)!)
         request.httpMethod = method
-        request.setValue("Bearer \(t.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = rawBody
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -328,17 +488,40 @@ final class VercelService {
     private func validateHTTPResponse(_ response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard (200...299).contains(http.statusCode) else {
-            let msg = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
-                ?? String(data: data, encoding: .utf8) ?? "Unknown error"
+            let msg = extractErrorMessage(from: data)
             throw VercelError.api(statusCode: http.statusCode, message: msg)
         }
+    }
+
+    private func extractErrorMessage(from data: Data) -> String {
+        // Vercel commonly returns: {"error": {"code": "X", "message": "Y"}}
+        struct NestedError: Decodable {
+            struct Body: Decodable { let code: String?; let message: String? }
+            let error: Body
+        }
+        if let nested = try? JSONDecoder().decode(NestedError.self, from: data) {
+            let parts = [nested.error.code, nested.error.message].compactMap { $0 }
+            if !parts.isEmpty { return parts.joined(separator: ": ") }
+        }
+        // Flat {"error": "string"}
+        if let flat = try? JSONDecoder().decode([String: String].self, from: data),
+           let m = flat["error"] {
+            return m
+        }
+        return String(data: data, encoding: .utf8) ?? "Unknown error"
     }
 
     private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
-            throw VercelError.decoding(error)
+            let preview = String(data: data.prefix(1200), encoding: .utf8) ?? "<non-utf8>"
+            let wrapped = NSError(
+                domain: "VercelDecode",
+                code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "\(error.localizedDescription) — raw body: \(preview)"]
+            )
+            throw VercelError.decoding(wrapped)
         }
     }
 

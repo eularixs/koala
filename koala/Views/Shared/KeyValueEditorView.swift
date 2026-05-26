@@ -5,13 +5,16 @@ struct KeyValueEditorView: View {
 
     var showDescription: Bool = false
     var showSecretToggle: Bool = false
+    var showHeader: Bool = true
     var keyPlaceholder: String = "Key"
     var valuePlaceholder: String = "Value"
 
     var body: some View {
         VStack(spacing: 0) {
-            headerRow
-            Divider()
+            if showHeader {
+                headerRow
+                Divider()
+            }
             ForEach($items) { $item in
                 KeyValueRowView(
                     item: $item,
@@ -26,11 +29,10 @@ struct KeyValueEditorView: View {
             }
             addButton
         }
-        .background(.background)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 0.5)
         )
     }
 
@@ -41,11 +43,9 @@ struct KeyValueEditorView: View {
             Spacer().frame(width: 8)
             Text(keyPlaceholder)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            columnDivider
             Text(valuePlaceholder)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if showDescription {
-                columnDivider
                 Text("Description")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -55,14 +55,8 @@ struct KeyValueEditorView: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+        .fixedSize(horizontal: false, vertical: true)
         .background(Color.secondary.opacity(0.05))
-    }
-
-    private var columnDivider: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.2))
-            .frame(width: 0.5)
-            .frame(maxHeight: .infinity)
     }
 
     private var addButton: some View {
@@ -117,13 +111,10 @@ private struct KeyValueRowView: View {
                 .frame(maxWidth: .infinity)
                 .onChange(of: item.key) { _, _ in onKeyChange() }
 
-            rowColumnDivider
-
             valueField
                 .frame(maxWidth: .infinity)
 
             if showDescription {
-                rowColumnDivider
                 TextField("Description", text: $item.description)
                     .textFieldStyle(.plain)
                     .frame(maxWidth: .infinity)
@@ -140,14 +131,8 @@ private struct KeyValueRowView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .fixedSize(horizontal: false, vertical: true)
         .opacity(item.isEnabled ? 1.0 : 0.5)
-    }
-
-    private var rowColumnDivider: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.2))
-            .frame(width: 0.5)
-            .frame(maxHeight: .infinity)
     }
 
     @ViewBuilder

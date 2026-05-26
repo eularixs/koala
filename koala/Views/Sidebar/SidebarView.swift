@@ -2,8 +2,8 @@ import SwiftUI
 
 struct SidebarView: View {
     @Environment(AppState.self) private var appState
-    @State private var showingNewCollectionAlert = false
-    @State private var newCollectionName = ""
+    @State private var showingNewCollectionSheet = false
+    @State private var showingCollabPopover = false
 
     var body: some View {
         @Bindable var state = appState
@@ -25,7 +25,9 @@ struct SidebarView: View {
             Group {
                 switch appState.selectedSidebarSection {
                 case .collections:
-                    CollectionTreeView()
+                    CollectionTreeView(onRequestNew: {
+                        showingNewCollectionSheet = true
+                    })
                 case .environments:
                     EnvironmentListView()
                 case .mockServers:
@@ -35,30 +37,33 @@ struct SidebarView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if appState.selectedSidebarSection == .collections {
-                Divider()
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
                 Button {
-                    newCollectionName = ""
-                    showingNewCollectionAlert = true
+                    showingCollabPopover.toggle()
                 } label: {
-                    Label("New Collection", systemImage: "plus")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
+                    Image(systemName: "person.2")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                .help("Collaboration (Push / Pull)")
+                .popover(isPresented: $showingCollabPopover, arrowEdge: .bottom) {
+                    CollaborationView()
+                        .environment(appState)
+                }
             }
         }
-        .alert("New Collection", isPresented: $showingNewCollectionAlert) {
-            TextField("Collection name", text: $newCollectionName)
-            Button("Create") {
-                let name = newCollectionName.trimmingCharacters(in: .whitespaces)
-                if !name.isEmpty { appState.addCollection(name) }
+        .sheet(isPresented: $showingNewCollectionSheet) {
+            CollectionEditorSheet(editing: nil) { name, colorHex in
+                appState.addCollection(name)
+                if let hex = colorHex, let last = appState.collections.last {
+                    var c = last
+                    c.color = hex
+                    if let idx = appState.collections.firstIndex(where: { $0.id == last.id }) {
+                        appState.collections[idx] = c
+                    }
+                }
                 appState.saveToDisk()
             }
-            Button("Cancel", role: .cancel) {}
         }
     }
 }

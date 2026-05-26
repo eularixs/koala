@@ -1,0 +1,194 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Bump Version + Build + Release
+    if: github.event.pull_request.merged == true
+    runs-on: macos-15
+    timeout-minutes: 35
+
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+      tag: ${{ steps.bump.outputs.tag }}
+      dmg_name: ${{ steps.package.outputs.dmg_name }}
+      sha256: ${{ steps.package.outputs.sha256 }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine bump type
+        id: bump_type
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          case "$TITLE" in
+            major:\ *) echo "type=major" >> "$GITHUB_OUTPUT" ;;
+            minor:\ *) echo "type=minor" >> "$GITHUB_OUTPUT" ;;
+            patch:\ *) echo "type=patch" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::PR title missing major:/minor:/patch: prefix. Skipping release."
+              exit 1
+              ;;
+          esac
+
+      - name: Read current MARKETING_VERSION
+        id: current
+        run: |
+          CUR=$(awk -F' = ' '/MARKETING_VERSION/ {gsub(";",""); print $2; exit}' koala.xcodeproj/project.pbxproj)
+          echo "current=$CUR" >> "$GITHUB_OUTPUT"
+          echo "Current version: $CUR"
+
+      - name: Bump SemVer
+        id: bump
+        env:
+          BUMP_TYPE: ${{ steps.bump_type.outputs.type }}
+          CURRENT: ${{ steps.current.outputs.current }}
+        run: |
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
+          case "$BUMP_TYPE" in
+            major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR+1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH+1)) ;;
+          esac
+          NEW="$MAJOR.$MINOR.$PATCH"
+          echo "new_version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEW" >> "$GITHUB_OUTPUT"
+          echo "New version: $NEW"
+
+      - name: Update MARKETING_VERSION in project.pbxproj
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          /usr/bin/sed -i '' "s/MARKETING_VERSION = .*;/MARKETING_VERSION = ${NEW_VERSION};/g" koala.xcodeproj/project.pbxproj
+          /usr/bin/sed -i '' "s/CURRENT_PROJECT_VERSION = .*;/CURRENT_PROJECT_VERSION = ${BUILD_NUMBER};/g" koala.xcodeproj/project.pbxproj
+
+      - name: Commit version bump
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add koala.xcodeproj/project.pbxproj
+          git commit -m "chore(release): ${NEW_VERSION}"
+          git tag "$TAG"
+          git push origin HEAD:main
+          git push origin "$TAG"
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Build Release .app
+        run: |
+          xcodebuild \
+            -project koala.xcodeproj \
+            -scheme koala \
+            -configuration Release \
+            -derivedDataPath build \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package as DMG
+        id: package
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+        run: |
+          APP_PATH="build/Build/Products/Release/koala.app"
+          DMG_NAME="koala-${NEW_VERSION}.dmg"
+          mkdir -p artifacts
+          hdiutil create -volname "koala" \
+            -srcfolder "$APP_PATH" \
+            -ov -format UDZO \
+            "artifacts/$DMG_NAME"
+          SHA=$(shasum -a 256 "artifacts/$DMG_NAME" | awk '{print $1}')
+          echo "dmg_name=$DMG_NAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.bump.outputs.tag }}
+          DMG_NAME: ${{ steps.package.outputs.dmg_name }}
+          SHA: ${{ steps.package.outputs.sha256 }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          NOTES=$(printf "Released from PR #%s\n\nTitle: %s\n\nSHA256: \`%s\`" "$PR_NUMBER" "$PR_TITLE" "$SHA")
+          gh release create "$TAG" \
+            "artifacts/$DMG_NAME" \
+            --title "$TAG" \
+            --notes "$NOTES"
+
+  update-homebrew:
+    name: Update Homebrew Tap
+    needs: release
+    runs-on: ubuntu-latest
+    if: success() && needs.release.outputs.tag != ''
+    steps:
+      - name: Bump cask in tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag }}
+          VERSION: ${{ needs.release.outputs.new_version }}
+          DMG_NAME: ${{ needs.release.outputs.dmg_name }}
+          SHA: ${{ needs.release.outputs.sha256 }}
+          TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO }}
+          SOURCE_REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$TAP_REPO" ] || [ -z "$GH_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_REPO var or HOMEBREW_TAP_TOKEN secret missing — skipping tap update."
+            exit 0
+          fi
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TAP_REPO}.git" tap
+          cd tap
+          mkdir -p Casks
+          ASSET_URL="https://github.com/${SOURCE_REPO}/releases/download/${TAG}/${DMG_NAME}"
+          cat > Casks/koala.rb <<RUBYEOF
+          cask "koala" do
+            version "${VERSION}"
+            sha256 "${SHA}"
+
+            url "${ASSET_URL}"
+            name "Koala"
+            desc "Native macOS API client (Postman-like)"
+            homepage "https://github.com/${SOURCE_REPO}"
+
+            # App is ad-hoc signed (no Apple Dev account). Strip the Gatekeeper
+            # quarantine xattr after install so users can open it without the
+            # "developer cannot be verified" warning.
+            app "koala.app"
+
+            postflight do
+              system_command "/usr/bin/xattr",
+                             args: ["-dr", "com.apple.quarantine", "#{appdir}/koala.app"],
+                             sudo: false
+            end
+
+            zap trash: [
+              "~/Library/Application Support/koala",
+              "~/Library/Preferences/com.koala.plist",
+              "~/Library/Caches/com.koala",
+            ]
+          end
+          RUBYEOF
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/koala.rb
+          git commit -m "koala ${VERSION}"
+          git push origin HEAD

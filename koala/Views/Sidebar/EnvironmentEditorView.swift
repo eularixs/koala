@@ -1,14 +1,21 @@
 import SwiftUI
 
-struct EnvironmentEditorView: View {
-    @Binding var environment: KoalaEnvironment
-    @Environment(\.dismiss) private var dismiss
+// MARK: - EnvironmentEditorView
 
+/// TablePlus-style sectioned editor for a KoalaEnvironment. Caller controls
+/// persistence via `onSave` (called only on Save button) — Cancel simply dismisses
+/// so a "create" flow can discard the draft.
+struct EnvironmentEditorView: View {
+    let isNew: Bool
+    let onSave: (KoalaEnvironment) -> Void
+
+    @Environment(\.dismiss) private var dismiss
     @State private var localEnv: KoalaEnvironment
 
-    init(environment: Binding<KoalaEnvironment>) {
-        _environment = environment
-        _localEnv = State(initialValue: environment.wrappedValue)
+    init(environment: KoalaEnvironment, isNew: Bool = false, onSave: @escaping (KoalaEnvironment) -> Void) {
+        self.isNew = isNew
+        self.onSave = onSave
+        _localEnv = State(initialValue: environment)
     }
 
     private let palette: [String] = [
@@ -18,75 +25,117 @@ struct EnvironmentEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            headerBar
+            header
             Divider()
-            colorRow
-            Divider()
-            KeyValueEditorView(
-                items: Binding<[KeyValuePair]>(
-                    get: { localEnv.variables.asKeyValuePairs },
-                    set: { localEnv.variables = $0.asEnvVariables(preserving: localEnv.variables) }
-                ),
-                showSecretToggle: true
-            )
-            .padding(12)
-            Spacer()
+            form
         }
-        .frame(minWidth: 520, minHeight: 440)
+        .frame(minWidth: 540, minHeight: 480)
     }
 
-    private var headerBar: some View {
-        HStack(spacing: 12) {
-            Button("Cancel", role: .cancel) { dismiss() }
+    // MARK: - Header
+
+    private var header: some View {
+        HStack {
+            Text(isNew ? "New Environment" : "Edit Environment")
+                .font(.headline)
             Spacer()
-            HStack(spacing: 6) {
-                if let hex = localEnv.color, let col = Color(hex: hex) {
-                    Circle().fill(col).frame(width: 10, height: 10)
-                }
-                TextField("Environment name", text: $localEnv.name)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 260)
-            }
-            Spacer()
-            Button("Done") {
-                environment = localEnv
+            Button("Cancel") { dismiss() }
+                .keyboardShortcut(.escape, modifiers: [])
+            Button("Save") {
+                onSave(localEnv)
                 dismiss()
             }
             .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(localEnv.name.trimmingCharacters(in: .whitespaces).isEmpty)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
     }
 
-    private var colorRow: some View {
-        HStack(spacing: 6) {
-            Text("Color")
-                .foregroundStyle(.secondary)
-                .font(.caption)
-                .frame(width: 50, alignment: .leading)
-            ForEach(palette, id: \.self) { hex in
-                Circle()
-                    .fill(Color(hex: hex) ?? .gray)
-                    .frame(width: 16, height: 16)
-                    .overlay {
-                        if localEnv.color == hex {
-                            Circle().stroke(Color.primary, lineWidth: 2)
+    // MARK: - Form
+
+    private var form: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionTitle("General")
+                groupedCard {
+                    formRow("Name") {
+                        TextField("e.g. Production", text: $localEnv.name)
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
+
+                sectionTitle("Color")
+                groupedCard {
+                    formRow("Color") {
+                        HStack(spacing: 6) {
+                            ForEach(palette, id: \.self) { hex in
+                                Circle()
+                                    .fill(Color(hex: hex) ?? .gray)
+                                    .frame(width: 18, height: 18)
+                                    .overlay {
+                                        if localEnv.color == hex {
+                                            Circle().stroke(Color.primary, lineWidth: 2)
+                                        }
+                                    }
+                                    .onTapGesture { localEnv.color = hex }
+                            }
+                            Button {
+                                localEnv.color = nil
+                            } label: {
+                                Image(systemName: "xmark.circle")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            Spacer()
                         }
                     }
-                    .onTapGesture { localEnv.color = hex }
+                }
+
+                sectionTitle("Variables")
+                KeyValueEditorView(
+                    items: Binding<[KeyValuePair]>(
+                        get: { localEnv.variables.asKeyValuePairs },
+                        set: { localEnv.variables = $0.asEnvVariables(preserving: localEnv.variables) }
+                    ),
+                    showSecretToggle: true
+                )
             }
-            Button {
-                localEnv.color = nil
-            } label: {
-                Image(systemName: "xmark.circle")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.borderless)
-            .help("Clear color")
-            Spacer()
+            .padding(16)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+    }
+
+    // MARK: - Helpers
+
+    @ViewBuilder
+    private func sectionTitle(_ s: String) -> some View {
+        Text(s).font(.headline)
+    }
+
+    @ViewBuilder
+    private func groupedCard<C: View>(@ViewBuilder content: () -> C) -> some View {
+        VStack(spacing: 0) {
+            content()
+        }
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 0.5)
+        )
+    }
+
+    @ViewBuilder
+    private func formRow<C: View>(_ label: String, @ViewBuilder content: () -> C) -> some View {
+        HStack(spacing: 12) {
+            Text(label)
+                .frame(width: 80, alignment: .leading)
+            content()
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }
 
@@ -121,12 +170,14 @@ extension Array where Element == KeyValuePair {
 // MARK: - Preview
 
 #Preview {
-    @Previewable @State var env = KoalaEnvironment(
-        name: "Production",
-        variables: [
-            EnvVariable(key: "BASE_URL", value: "https://api.example.com", isEnabled: true),
-            EnvVariable(key: "API_KEY", value: "secret123", isSecret: true, isEnabled: true)
-        ]
+    EnvironmentEditorView(
+        environment: KoalaEnvironment(
+            name: "Production",
+            variables: [
+                EnvVariable(key: "BASE_URL", value: "https://api.example.com", isEnabled: true)
+            ]
+        ),
+        isNew: false,
+        onSave: { _ in }
     )
-    EnvironmentEditorView(environment: $env)
 }

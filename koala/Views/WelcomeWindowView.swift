@@ -13,6 +13,11 @@ struct WelcomeWindowView: View {
     let onPicked: (Bool) -> Void
 
     @State private var showCreateSheet = false
+    @State private var showJoinSheet = false
+    @State private var joinKeyText: String = ""
+    @State private var joinError: String? = nil
+    @State private var isJoining: Bool = false
+    @Environment(CollaborationService.self) private var collab
     @State private var editingProject: Project? = nil
     @State private var showImporter = false
     @State private var importError: String? = nil
@@ -61,6 +66,7 @@ struct WelcomeWindowView: View {
                     }
                     appState.setColor(project.color, for: created.id)
                     appState.setGroupName(group, for: created.id)
+                    appState.setTag(project.tagId, for: created.id)
                     appState.switchProject(to: created.id)
                     showCreateSheet = false
                     dismissWindow(id: "welcome")
@@ -78,6 +84,7 @@ struct WelcomeWindowView: View {
                     appState.setSlug(updated.slug, for: project.id)
                     appState.setColor(updated.color, for: project.id)
                     appState.setGroupName(group, for: project.id)
+                    appState.setTag(updated.tagId, for: project.id)
                     editingProject = nil
                 },
                 onCancel: { editingProject = nil }
@@ -92,6 +99,50 @@ struct WelcomeWindowView: View {
             Button("OK") {}
         } message: { Text($0) }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: $showJoinSheet) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Join Project").font(.headline)
+                Text("Paste a share key from a project owner.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextEditor(text: $joinKeyText)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(minHeight: 100)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
+                if let err = joinError {
+                    Text(err).font(.caption).foregroundStyle(.red).lineLimit(3)
+                }
+                HStack {
+                    Button("Cancel") { showJoinSheet = false }
+                    Spacer()
+                    Button {
+                        Task { await join() }
+                    } label: {
+                        if isJoining { ProgressView().controlSize(.small) }
+                        else { Text("Join") }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isJoining || joinKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .padding(20)
+            .frame(width: 480)
+        }
+    }
+
+    private func join() async {
+        isJoining = true
+        joinError = nil
+        defer { isJoining = false }
+        do {
+            let project = try await collab.joinViaShareKey(joinKeyText, appState: appState)
+            appState.switchProject(to: project.id)
+            showJoinSheet = false
+            dismissWindow(id: "welcome")
+            onPicked(true)
+        } catch {
+            joinError = error.localizedDescription
+        }
     }
 
     // MARK: - Sidebar
@@ -119,6 +170,17 @@ struct WelcomeWindowView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Button {
+                    joinKeyText = ""
+                    joinError = nil
+                    showJoinSheet = true
+                } label: {
+                    Label("Join Project", systemImage: "key.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
                 .controlSize(.large)
 
                 Button {
@@ -173,12 +235,15 @@ struct WelcomeWindowView: View {
             TextField("Group name", text: $newGroupName)
             Button("Create") {
                 let g = newGroupName.trimmingCharacters(in: .whitespaces)
-                if !g.isEmpty { collapsedGroups.remove(g) }
+                if !g.isEmpty {
+                    appState.addCustomGroup(g)
+                    collapsedGroups.remove(g)
+                }
                 newGroupName = ""
             }
             Button("Cancel", role: .cancel) { newGroupName = "" }
         } message: {
-            Text("Groups become visible when you assign a project to them via Edit.")
+            Text("Group will appear in the list. Assign projects to it via Edit.")
         }
     }
 
@@ -274,7 +339,12 @@ struct WelcomeWindowView: View {
                 || $0.slug.lowercased().contains(needle)
                 || ($0.groupName ?? "").lowercased().contains(needle)
         }
-        let grouped = Dictionary(grouping: matching) { $0.groupName ?? "Ungrouped" }
+        var grouped = Dictionary(grouping: matching) { $0.groupName ?? "Ungrouped" }
+        for g in appState.projectGroups where grouped[g] == nil {
+            if needle.isEmpty || g.lowercased().contains(needle) {
+                grouped[g] = []
+            }
+        }
         return grouped
             .map { ($0.key, $0.value.sorted { $0.updatedAt > $1.updatedAt }) }
             .sorted { lhs, rhs in
@@ -335,6 +405,8 @@ private struct ProjectRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
+    @Environment(AppState.self) private var appState
+
     @State private var hovering = false
     @State private var confirmDelete = false
 
@@ -346,9 +418,14 @@ private struct ProjectRow: View {
                     .frame(width: 10, height: 10)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(project.name)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
+                    HStack(spacing: 6) {
+                        Text(project.name)
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.primary)
+                        if let tag = appState.tag(byId: project.tagId) {
+                            TagBadgeView(tag: tag, compact: true)
+                        }
+                    }
                     Text(project.slug)
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -410,6 +487,14 @@ struct ProjectFormSheet: View {
     @State private var color: String? = nil
     @State private var groupName: String = ""
     @State private var slugManuallyEdited: Bool = false
+    @State private var tagId: UUID? = nil
+
+    @State private var showTagPicker: Bool = false
+    @State private var showGroupPicker: Bool = false
+    @State private var newGroupInput: String = ""
+    @State private var showTagManager: Bool = false
+    @State private var newTagName: String = ""
+    @State private var newTagColor: String = "#22B8CF"
 
     private let palette: [String] = [
         "#FF6B6B", "#FFA94D", "#FFD43B", "#51CF66",
@@ -437,21 +522,27 @@ struct ProjectFormSheet: View {
                 }
                 Divider()
                 row(label: "Group") {
-                    HStack {
-                        TextField("", text: $groupName, prompt: Text("Ungrouped"))
-                            .textFieldStyle(.plain)
-                        if !appState.projectGroups.isEmpty {
-                            Menu {
-                                ForEach(appState.projectGroups, id: \.self) { g in
-                                    Button(g) { groupName = g }
-                                }
-                            } label: {
-                                Image(systemName: "list.bullet")
-                            }
-                            .menuStyle(.borderlessButton)
-                            .menuIndicator(.hidden)
-                            .fixedSize()
-                        }
+                    Button {
+                        newGroupInput = ""
+                        showGroupPicker.toggle()
+                    } label: {
+                        groupChip
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showGroupPicker, arrowEdge: .top) {
+                        groupPickerPopover
+                    }
+                }
+                Divider()
+                row(label: "Tag") {
+                    Button {
+                        showTagPicker.toggle()
+                    } label: {
+                        TagBadgeView(tag: appState.tag(byId: tagId), compact: true)
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showTagPicker, arrowEdge: .top) {
+                        tagPickerPopover
                     }
                 }
                 Divider()
@@ -497,12 +588,17 @@ struct ProjectFormSheet: View {
         }
         .padding(22)
         .frame(width: 460)
+        .sheet(isPresented: $showTagManager) {
+            TagManagerSheet()
+                .environment(appState)
+        }
         .onAppear {
             name = initial.name
             slug = initial.slug
             color = initial.color
             groupName = initial.groupName ?? ""
             slugManuallyEdited = !slug.isEmpty && slug != Project.deriveSlug(from: name)
+            tagId = initial.tagId
         }
     }
 
@@ -516,11 +612,139 @@ struct ProjectFormSheet: View {
         }
     }
 
+    // MARK: - Group Picker
+
+    private var groupChip: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "folder")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(groupName.isEmpty ? "Ungrouped" : groupName)
+                .font(.caption)
+                .foregroundStyle(.primary)
+            Image(systemName: "chevron.down")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .overlay(Capsule().stroke(Color.secondary.opacity(0.35), lineWidth: 0.5))
+    }
+
+    private var groupPickerPopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            pickerRow(label: "Ungrouped", icon: "minus.circle") {
+                groupName = ""
+                showGroupPicker = false
+            }
+            Divider()
+            ForEach(appState.projectGroups, id: \.self) { g in
+                pickerRow(label: g, icon: "folder") {
+                    groupName = g
+                    showGroupPicker = false
+                }
+            }
+            Divider()
+            HStack(spacing: 6) {
+                TextField("New group name", text: $newGroupInput)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .onSubmit { addGroup() }
+                Button {
+                    addGroup()
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .disabled(newGroupInput.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+        }
+        .frame(width: 240)
+        .padding(.vertical, 4)
+    }
+
+    private func addGroup() {
+        let trimmed = newGroupInput.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        appState.addCustomGroup(trimmed)
+        groupName = trimmed
+        newGroupInput = ""
+        showGroupPicker = false
+    }
+
+    // MARK: - Tag Picker
+
+    private var tagPickerPopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            pickerRowWithDot(label: "No Tag", color: .secondary) {
+                tagId = nil
+                showTagPicker = false
+            }
+            Divider()
+            ForEach(appState.tags) { t in
+                pickerRowWithDot(label: t.name, color: Color(hex: t.colorHex) ?? .gray) {
+                    tagId = t.id
+                    showTagPicker = false
+                }
+            }
+            Divider()
+            Button {
+                showTagPicker = false
+                showTagManager = true
+            } label: {
+                HStack {
+                    Image(systemName: "gearshape")
+                    Text("Manage Tags...")
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(width: 220)
+        .padding(.vertical, 4)
+    }
+
+    private func pickerRow(label: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                Text(label)
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func pickerRowWithDot(label: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Circle().fill(color).frame(width: 10, height: 10)
+                Text(label)
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private func submit() {
         var p = initial
         p.name = name.trimmingCharacters(in: .whitespaces)
         p.slug = slug.trimmingCharacters(in: .whitespaces)
         p.color = color
+        p.tagId = tagId
         let group = groupName.trimmingCharacters(in: .whitespaces)
         onSubmit(p, group.isEmpty ? nil : group)
     }

@@ -34,8 +34,8 @@ struct BodyEditorView: View {
             Divider()
 
             bodyContent
-                .padding(12)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { selectedTag = tag(for: request.body) }
         .onChange(of: selectedTag) { _, newTag in switchBody(to: newTag) }
     }
@@ -58,25 +58,31 @@ struct BodyEditorView: View {
     private var bodyContent: some View {
         switch request.body {
         case .none:
-            noneView
+            noneView.padding(12)
 
         case .json(let text):
-            jsonBinding(text: text)
+            jsonBinding(text: text).padding(12)
 
         case .formURLEncoded:
-            KeyValueEditorView(items: formBinding)
+            ScrollView {
+                KeyValueEditorView(items: formBinding, showHeader: false)
+                    .padding(12)
+            }
 
         case .multipart(let items):
-            multipartEditor(items: items)
+            ScrollView {
+                multipartEditor(items: items)
+                    .padding(12)
+            }
 
         case .raw(let content, let contentType):
-            rawEditor(content: content, contentType: contentType)
+            rawEditor(content: content, contentType: contentType).padding(12)
 
-        case .graphql(let query, let variables):
-            graphqlEditor(query: query, variables: variables)
+        case .graphql:
+            GraphQLBuilderView(request: $request)
 
         case .binary(let url):
-            binaryEditor(url: url)
+            binaryEditor(url: url).padding(12)
         }
     }
 
@@ -84,8 +90,9 @@ struct BodyEditorView: View {
 
     private var noneView: some View {
         Text("No body")
+            .font(.caption)
             .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, minHeight: 80, alignment: .center)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - JSON
@@ -166,39 +173,6 @@ struct BodyEditorView: View {
         }
     }
 
-    // MARK: - GraphQL
-
-    @ViewBuilder
-    private func graphqlEditor(query: String, variables: String) -> some View {
-        let queryBinding = Binding<String>(
-            get: { if case .graphql(let q, _) = request.body { return q } else { return query } },
-            set: { newQ in
-                if case .graphql(_, let v) = request.body { request.body = .graphql(query: newQ, variables: v) }
-            }
-        )
-        let variablesBinding = Binding<String>(
-            get: { if case .graphql(_, let v) = request.body { return v } else { return variables } },
-            set: { newV in
-                if case .graphql(let q, _) = request.body { request.body = .graphql(query: q, variables: newV) }
-            }
-        )
-
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Query")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                CodeEditorView(text: queryBinding, language: "graphql")
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Variables")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                CodeEditorView(text: variablesBinding, language: "json")
-            }
-        }
-    }
-
     // MARK: - Binary
 
     @ViewBuilder
@@ -267,8 +241,6 @@ private struct MultipartTableView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            headerRow
-            Divider()
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 MultipartRowView(
                     item: rowBinding(index: index),
@@ -276,44 +248,20 @@ private struct MultipartTableView: View {
                     onPickFile: { filePickerIndex = index; showFilePicker = true },
                     onKeyChange: { handleKeyChange(for: item) }
                 )
-                Divider().padding(.leading, 8)
+                if index < items.count - 1 || !items.isEmpty {
+                    Divider().padding(.leading, 8)
+                }
             }
             addButton
         }
-        .background(.background)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 0.5)
         )
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.data]) { result in
             handleFilePick(result: result)
         }
-    }
-
-    private var headerRow: some View {
-        HStack(spacing: 0) {
-            Text("").frame(width: 24)
-            Spacer().frame(width: 8)
-            Text("Key").frame(maxWidth: .infinity, alignment: .leading)
-            columnDivider
-            Text("Value").frame(maxWidth: .infinity, alignment: .leading)
-            columnDivider
-            Text("Type").frame(width: 60, alignment: .leading)
-            Spacer().frame(width: 28)
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.secondary.opacity(0.05))
-    }
-
-    private var columnDivider: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.2))
-            .frame(width: 0.5)
-            .frame(maxHeight: .infinity)
     }
 
     private var addButton: some View {
@@ -381,12 +329,8 @@ private struct MultipartRowView: View {
                 .frame(maxWidth: .infinity)
                 .onChange(of: item.key) { _, _ in onKeyChange() }
 
-            rowColumnDivider
-
             valueCell
                 .frame(maxWidth: .infinity)
-
-            rowColumnDivider
 
             typePicker
                 .frame(width: 60)
@@ -395,14 +339,8 @@ private struct MultipartRowView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .fixedSize(horizontal: false, vertical: true)
         .opacity(item.isEnabled ? 1.0 : 0.5)
-    }
-
-    private var rowColumnDivider: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.2))
-            .frame(width: 0.5)
-            .frame(maxHeight: .infinity)
     }
 
     @ViewBuilder

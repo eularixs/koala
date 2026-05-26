@@ -27,10 +27,8 @@ struct MockServerSetupView: View {
                 Divider()
                 errorBanner(err)
             }
-            Divider()
-            footer
         }
-        .frame(width: 440)
+        .frame(width: 460)
         .frame(minHeight: 340)
         .onAppear {
             if serverName.isEmpty { serverName = defaultName }
@@ -47,9 +45,20 @@ struct MockServerSetupView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if isCreating {
+                ProgressView()
+                    .scaleEffect(0.75)
+                    .padding(.trailing, 4)
+            }
+            Button("Cancel", role: .cancel) { dismiss() }
+                .keyboardShortcut(.escape)
+            Button("Create") { createServer() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.return)
+                .disabled(serverName.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.vertical, 12)
     }
 
     private var formContent: some View {
@@ -102,25 +111,6 @@ struct MockServerSetupView: View {
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.red.opacity(0.05))
-    }
-
-    private var footer: some View {
-        HStack {
-            Button("Cancel", role: .cancel) { dismiss() }
-                .keyboardShortcut(.escape)
-            Spacer()
-            if isCreating {
-                ProgressView()
-                    .scaleEffect(0.75)
-                    .padding(.trailing, 4)
-            }
-            Button("Create") { createServer() }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.return)
-                .disabled(serverName.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
     }
 
     private func createServer() {

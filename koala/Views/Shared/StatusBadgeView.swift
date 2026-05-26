@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StatusBadgeView: View {
     let statusCode: Int
+    var showText: Bool = true
 
     var body: some View {
         Text(label)
@@ -13,7 +14,7 @@ struct StatusBadgeView: View {
     }
 
     private var label: String {
-        if let text = Self.knownCodes[statusCode] {
+        if showText, let text = Self.knownCodes[statusCode] {
             return "\(statusCode) \(text)"
         }
         return "\(statusCode)"

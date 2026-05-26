@@ -112,7 +112,7 @@ private struct HistoryRowView: View {
     var body: some View {
         HStack(spacing: 8) {
             if let response = entry.responseSnapshot {
-                StatusBadgeView(statusCode: response.statusCode)
+                StatusBadgeView(statusCode: response.statusCode, showText: false)
             } else {
                 Text("—")
                     .font(.system(.caption, design: .monospaced).weight(.semibold))

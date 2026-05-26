@@ -15,6 +15,7 @@ final class StateContainer {
     let importExportService: ImportExportService
     let vercelService: VercelService
     let mockServerService: MockServerService
+    let collaborationService: CollaborationService
 
     init() {
         let vs = VercelService()
@@ -24,5 +25,6 @@ final class StateContainer {
         importExportService = ImportExportService()
         vercelService = vs
         mockServerService = MockServerService(vercelService: vs)
+        collaborationService = CollaborationService(vercelService: vs)
     }
 }

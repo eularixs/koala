@@ -45,6 +45,10 @@ private func makeNodes(from items: [CollectionItem]) -> [TreeNode] {
 struct CollectionTreeView: View {
     @Environment(AppState.self) private var appState
     @Environment(WorkspaceState.self) private var workspaceState
+
+    /// Optional callback from sidebar host to open the "New Collection" dialog.
+    var onRequestNew: (() -> Void)? = nil
+
     @State private var renamingId: UUID? = nil
     @State private var renameBuffer: String = ""
     @State private var addFolderParentId: UUID? = nil
@@ -55,27 +59,38 @@ struct CollectionTreeView: View {
     @State private var showAddFolder = false
     @State private var showAddRequest = false
 
+    /// Persisted per-project: UUIDs of collections/folders currently expanded.
+    @State private var expanded: Set<UUID> = []
+
     var body: some View {
         @Bindable var state = appState
         let nodes = makeNodes(from: appState.collections)
 
-        Group {
-            if nodes.isEmpty {
-                Text("No collections. Click + to start.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(nodes, children: \.children, selection: $state.selectedRequestId) {
-                    node in
-                    treeRow(node)
-                }
-                .listStyle(.sidebar)
-                .onChange(of: appState.selectedRequestId) { _, newId in
-                    guard let id = newId, let request = appState.request(byId: id) else { return }
-                    workspaceState.openRequest(request)
+        VStack(spacing: 0) {
+            sectionHeader
+            Divider()
+            Group {
+                if nodes.isEmpty {
+                    Text("No collections. Click + to start.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(selection: $state.selectedRequestId) {
+                        ForEach(nodes) { node in
+                            treeNodeView(node)
+                        }
+                    }
+                    .listStyle(.sidebar)
+                    .onChange(of: appState.selectedRequestId) { _, newId in
+                        guard let id = newId, let request = appState.request(byId: id) else { return }
+                        workspaceState.openRequest(request)
+                    }
                 }
             }
         }
+        .onAppear { loadExpansion(appState.activeProjectId) }
+        .onChange(of: appState.activeProjectId) { _, new in loadExpansion(new) }
+        .onChange(of: expanded) { _, _ in saveExpansion(appState.activeProjectId) }
         .alert("New Folder", isPresented: $showAddFolder) {
             TextField("Folder name", text: $addFolderName)
             Button("Add") {
@@ -108,6 +123,71 @@ struct CollectionTreeView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    // MARK: Section Header
+
+    private var sectionHeader: some View {
+        HStack {
+            Text("Collections")
+                .font(.headline)
+                .padding(.leading, 12)
+            Spacer()
+            Button {
+                onRequestNew?()
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 12)
+        }
+        .padding(.vertical, 8)
+    }
+
+    // MARK: Recursive Node View (with persisted expansion)
+
+    private func treeNodeView(_ node: TreeNode) -> AnyView {
+        if let children = node.children, !children.isEmpty {
+            return AnyView(
+                DisclosureGroup(
+                    isExpanded: Binding(
+                        get: { expanded.contains(node.id) },
+                        set: { isOpen in
+                            if isOpen { expanded.insert(node.id) }
+                            else { expanded.remove(node.id) }
+                        }
+                    )
+                ) {
+                    ForEach(children) { child in
+                        treeNodeView(child)
+                    }
+                } label: {
+                    treeRow(node)
+                }
+            )
+        } else {
+            return AnyView(treeRow(node).tag(node.id))
+        }
+    }
+
+    // MARK: Expansion Persistence
+
+    private func expansionKey(_ pid: UUID) -> String { "expanded.\(pid.uuidString)" }
+
+    private func loadExpansion(_ projectId: UUID?) {
+        guard let pid = projectId else { expanded = []; return }
+        guard let data = UserDefaults.standard.data(forKey: expansionKey(pid)),
+              let set = try? JSONDecoder().decode(Set<UUID>.self, from: data) else {
+            expanded = []
+            return
+        }
+        expanded = set
+    }
+
+    private func saveExpansion(_ projectId: UUID?) {
+        guard let pid = projectId,
+              let data = try? JSONEncoder().encode(expanded) else { return }
+        UserDefaults.standard.set(data, forKey: expansionKey(pid))
     }
 
     // MARK: Row

@@ -8,12 +8,14 @@ struct EnvironmentListView: View {
 
     private enum SheetTarget: Identifiable {
         case environment(UUID)
+        case newEnvironment
         case globalVariables
 
         var id: String {
             switch self {
             case .environment(let id): return id.uuidString
-            case .globalVariables: return "globals"
+            case .newEnvironment:      return "new-env"
+            case .globalVariables:     return "globals"
             }
         }
     }
@@ -47,10 +49,7 @@ struct EnvironmentListView: View {
                 .padding(.leading, 12)
             Spacer()
             Button {
-                let env = KoalaEnvironment()
-                appState.environments.append(env)
-                appState.saveToDisk()
-                sheetTarget = .environment(env.id)
+                sheetTarget = .newEnvironment
             } label: {
                 Label("New", systemImage: "plus")
                     .labelStyle(.iconOnly)
@@ -93,8 +92,12 @@ struct EnvironmentListView: View {
             } else {
                 HStack {
                     Circle()
-                        .fill(appState.selectedEnvironmentId == env.id ? Color.green : Color.secondary.opacity(0.3))
-                        .frame(width: 8, height: 8)
+                        .fill(envDotColor(for: env))
+                        .frame(width: 10, height: 10)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.primary.opacity(appState.selectedEnvironmentId == env.id ? 0.6 : 0), lineWidth: 1.5)
+                        )
                     Text(env.name)
                         .foregroundStyle(appState.selectedEnvironmentId == env.id ? .primary : .secondary)
                     Spacer()
@@ -128,6 +131,11 @@ struct EnvironmentListView: View {
         .padding(.vertical, 2)
     }
 
+    private func envDotColor(for env: KoalaEnvironment) -> Color {
+        if let hex = env.color, let c = Color(hex: hex) { return c }
+        return Color.secondary.opacity(0.4)
+    }
+
     private func commitRename(for id: UUID) {
         guard let idx = appState.environments.firstIndex(where: { $0.id == id }) else {
             editingEnvId = nil
@@ -155,8 +163,18 @@ struct EnvironmentListView: View {
         @Bindable var state = appState
         switch target {
         case .environment(let id):
-            if let idx = appState.environments.firstIndex(where: { $0.id == id }) {
-                EnvironmentEditorView(environment: $state.environments[idx])
+            if let env = appState.environments.first(where: { $0.id == id }) {
+                EnvironmentEditorView(environment: env, isNew: false) { updated in
+                    if let idx = appState.environments.firstIndex(where: { $0.id == id }) {
+                        appState.environments[idx] = updated
+                        appState.saveToDisk()
+                    }
+                }
+            }
+        case .newEnvironment:
+            EnvironmentEditorView(environment: KoalaEnvironment(), isNew: true) { newEnv in
+                appState.environments.append(newEnv)
+                appState.saveToDisk()
             }
         case .globalVariables:
             GlobalVariablesEditorSheet(items: $state.globalVariables)

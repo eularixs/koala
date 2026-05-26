@@ -1,8 +1,22 @@
 import SwiftUI
 
+// MARK: - FocusedValues
+
+struct RequestSaveActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+extension FocusedValues {
+    var requestSaveAction: RequestSaveActionKey.Value? {
+        get { self[RequestSaveActionKey.self] }
+        set { self[RequestSaveActionKey.self] = newValue }
+    }
+}
+
 @main
 struct koalaApp: App {
     @State private var container = StateContainer()
+    @FocusedValue(\.requestSaveAction) private var saveAction
 
     var body: some Scene {
         // MARK: Main Window
@@ -14,10 +28,20 @@ struct koalaApp: App {
                 .environment(container.importExportService)
                 .environment(container.vercelService)
                 .environment(container.mockServerService)
+                .environment(container.collaborationService)
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .windowResizability(.contentSize)
+        .commands {
+            CommandGroup(replacing: .saveItem) {
+                Button("Save Request") {
+                    saveAction?()
+                }
+                .keyboardShortcut("s", modifiers: .command)
+                .disabled(saveAction == nil)
+            }
+        }
 
         // MARK: Welcome / Manage Projects Window
         Window("Projects", id: "welcome") {
@@ -29,6 +53,7 @@ struct koalaApp: App {
                 .environment(container.importExportService)
                 .environment(container.vercelService)
                 .environment(container.mockServerService)
+                .environment(container.collaborationService)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)

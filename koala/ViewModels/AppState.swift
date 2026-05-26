@@ -340,8 +340,57 @@ final class AppState {
         saveManifest()
     }
 
+    private var customGroupNames: [String] = []
+
+    /// Available project tags (env labels). Persisted in manifest.
+    var tags: [ProjectTag] = ProjectTag.defaults
+
+    func setTag(_ tagId: UUID?, for projectId: UUID) {
+        guard let idx = projects.firstIndex(where: { $0.id == projectId }) else { return }
+        projects[idx].tagId = tagId
+        projects[idx].updatedAt = Date()
+        saveManifest()
+    }
+
+    func upsertTag(_ tag: ProjectTag) {
+        if let i = tags.firstIndex(where: { $0.id == tag.id }) {
+            tags[i] = tag
+        } else {
+            tags.append(tag)
+        }
+        saveManifest()
+    }
+
+    func deleteTag(_ id: UUID) {
+        tags.removeAll { $0.id == id }
+        for i in projects.indices where projects[i].tagId == id {
+            projects[i].tagId = nil
+        }
+        saveManifest()
+    }
+
+    func tag(byId id: UUID?) -> ProjectTag? {
+        guard let id else { return nil }
+        return tags.first(where: { $0.id == id })
+    }
+
+    func addCustomGroup(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        if !customGroupNames.contains(trimmed) && !projects.contains(where: { $0.groupName == trimmed }) {
+            customGroupNames.append(trimmed)
+            saveManifest()
+        }
+    }
+
+    func removeCustomGroup(_ name: String) {
+        customGroupNames.removeAll { $0 == name }
+        saveManifest()
+    }
+
     var projectGroups: [String] {
-        Array(Set(projects.compactMap { $0.groupName })).sorted()
+        let fromProjects = projects.compactMap { $0.groupName }
+        return Array(Set(fromProjects + customGroupNames)).sorted()
     }
 
     func deleteProject(_ id: UUID) {
@@ -376,10 +425,13 @@ final class AppState {
             let defaultProject = Project(name: "Default", slug: slug)
             projects = [defaultProject]
             activeProjectId = defaultProject.id
+            customGroupNames = []
             saveManifest()
         } else {
             projects = manifest.projects
             activeProjectId = manifest.activeProjectId ?? manifest.projects.first?.id
+            customGroupNames = manifest.customGroupNames
+            tags = manifest.tags.isEmpty ? ProjectTag.defaults : manifest.tags
         }
 
         if let id = activeProjectId {
@@ -397,6 +449,9 @@ final class AppState {
     /// Ensures a "Mock Cloud" environment exists for the given project.
     /// Called after loading project slices.
     func ensureMockEnvironment(forProject id: UUID) {
+        // Migrate legacy MOCK_BASE_URL → BASE_URL in any existing Mock Cloud env
+        migrateLegacyMockBaseURL(forProject: id)
+
         let hasMock = (environmentsByProject[id] ?? []).contains(where: { $0.name == "Mock Cloud" })
         guard !hasMock else { return }
 
@@ -405,7 +460,7 @@ final class AppState {
             name: "Mock Cloud",
             color: "#22B8CF",
             variables: [
-                EnvVariable(key: "MOCK_BASE_URL", value: "https://koala-mock.vercel.app", isEnabled: true)
+                EnvVariable(key: "BASE_URL", value: "https://koala-mock.vercel.app", isEnabled: true)
             ]
         )
         if environmentsByProject[id] == nil {
@@ -415,14 +470,94 @@ final class AppState {
         try? persistence.saveEnvironments(environmentsByProject[id]!, forProject: id)
     }
 
+    /// One-shot migration: renames `MOCK_BASE_URL` → `BASE_URL` in the Mock Cloud env.
+    /// Safe to call repeatedly (no-op once migrated).
+    private func migrateLegacyMockBaseURL(forProject id: UUID) {
+        guard var envs = environmentsByProject[id] else { return }
+        var mutated = false
+        for envIdx in envs.indices where envs[envIdx].name == "Mock Cloud" {
+            var env = envs[envIdx]
+            for varIdx in env.variables.indices where env.variables[varIdx].key == "MOCK_BASE_URL" {
+                // If BASE_URL already exists, drop legacy duplicate; otherwise rename.
+                if env.variables.contains(where: { $0.key == "BASE_URL" }) {
+                    env.variables.remove(at: varIdx)
+                } else {
+                    env.variables[varIdx].key = "BASE_URL"
+                }
+                mutated = true
+                break
+            }
+            envs[envIdx] = env
+        }
+        if mutated {
+            environmentsByProject[id] = envs
+            try? persistence.saveEnvironments(envs, forProject: id)
+        }
+    }
+
+    /// Updates the `BASE_URL` variable in the "Mock Cloud" environment for the given project.
+    /// Creates the env if missing.
+    func updateMockBaseURL(forProject id: UUID, url: String) {
+        ensureMockEnvironment(forProject: id)
+        guard var envs = environmentsByProject[id],
+              let envIdx = envs.firstIndex(where: { $0.name == "Mock Cloud" }) else { return }
+        var env = envs[envIdx]
+        if let varIdx = env.variables.firstIndex(where: { $0.key == "BASE_URL" }) {
+            env.variables[varIdx].value = url
+            env.variables[varIdx].isEnabled = true
+        } else {
+            env.variables.append(EnvVariable(key: "BASE_URL", value: url, isEnabled: true))
+        }
+        envs[envIdx] = env
+        environmentsByProject[id] = envs
+        try? persistence.saveEnvironments(envs, forProject: id)
+    }
+
     // MARK: Private Helpers
 
     private func loadProjectSlices(_ id: UUID) {
         collectionsByProject[id] = (try? persistence.loadCollections(forProject: id)) ?? []
         environmentsByProject[id] = (try? persistence.loadEnvironments(forProject: id)) ?? []
         globalsByProject[id] = (try? persistence.loadGlobals(forProject: id)) ?? []
-        mockServersByProject[id] = (try? persistence.loadMockServers(forProject: id)) ?? []
+        var loadedServers = (try? persistence.loadMockServers(forProject: id)) ?? []
+        let projectSlug = projects.first(where: { $0.id == id })?.slug ?? ""
+        var mutated = false
+        for sIdx in loadedServers.indices {
+            let fixed = AppState.canonicalDeploymentURL(loadedServers[sIdx].deploymentURL, projectSlug: projectSlug)
+            if fixed != loadedServers[sIdx].deploymentURL {
+                loadedServers[sIdx].deploymentURL = fixed
+                mutated = true
+            }
+        }
+        if mutated {
+            try? persistence.saveMockServers(loadedServers, forProject: id)
+        }
+        mockServersByProject[id] = loadedServers
+        // Sync BASE_URL env to the canonical URL of the first server (if any).
+        if let first = loadedServers.first, !first.deploymentURL.isEmpty {
+            updateMockBaseURL(forProject: id, url: first.deploymentURL)
+        }
         ensureMockEnvironment(forProject: id)
+    }
+
+    /// Strips the 9-char per-deployment random ID from a stored mock URL, leaving the
+    /// stable production alias. e.g.
+    ///   `https://koala-mock-test-group-mhubkqc65-team.vercel.app`
+    ///   → `https://koala-mock-test-group-team.vercel.app`
+    static func canonicalDeploymentURL(_ raw: String, projectSlug: String) -> String {
+        guard !projectSlug.isEmpty, raw.contains(".vercel.app") else { return raw }
+        let marker = "koala-mock-\(projectSlug)-"
+        guard let mStart = raw.range(of: marker),
+              let appEnd = raw.range(of: ".vercel.app") else { return raw }
+        let between = String(raw[mStart.upperBound..<appEnd.lowerBound])
+        let parts = between.split(separator: "-", maxSplits: 1).map(String.init)
+        // Heuristic: per-deployment id is exactly 9 lowercase alphanumeric chars.
+        guard parts.count == 2,
+              parts[0].count == 9,
+              parts[0].allSatisfy({ $0.isLetter || $0.isNumber }) else {
+            return raw
+        }
+        return String(raw[..<mStart.upperBound]) + parts[1] + String(raw[appEnd.lowerBound...])
     }
 
     func saveActiveProject() {
@@ -433,7 +568,7 @@ final class AppState {
     }
 
     private func saveManifest() {
-        let manifest = ProjectsManifest(projects: projects, activeProjectId: activeProjectId)
+        let manifest = ProjectsManifest(projects: projects, activeProjectId: activeProjectId, customGroupNames: customGroupNames, tags: tags)
         try? persistence.saveProjects(manifest)
     }
 
@@ -443,5 +578,60 @@ final class AppState {
         var counter = 2
         while existing.contains("\(base)-\(counter)") { counter += 1 }
         return "\(base)-\(counter)"
+    }
+
+    // MARK: - Collaboration Bundle
+
+    /// Builds a Codable snapshot of all collaborative data for a project.
+    func collaborationBundle(forProject id: UUID) -> CollaborationBundle {
+        CollaborationBundle(
+            collections: collectionsByProject[id] ?? [],
+            environments: environmentsByProject[id] ?? [],
+            globalVariables: globalsByProject[id] ?? [],
+            schemaVersion: CollaborationBundle.currentSchemaVersion
+        )
+    }
+
+    /// Replaces local collections/environments/globals for a project and persists.
+    func applyCollaborationBundle(_ bundle: CollaborationBundle, forProject id: UUID) {
+        collectionsByProject[id] = bundle.collections
+        environmentsByProject[id] = bundle.environments
+        globalsByProject[id] = bundle.globalVariables
+        try? persistence.saveCollections(bundle.collections, forProject: id)
+        try? persistence.saveEnvironments(bundle.environments, forProject: id)
+        try? persistence.saveGlobals(bundle.globalVariables, forProject: id)
+        ensureMockEnvironment(forProject: id)
+    }
+
+    /// Stores the Vercel Edge Config ID for a project's collab data and persists manifest.
+    func setCollabEdgeConfigId(_ configId: String?, forProject id: UUID) {
+        guard let i = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[i].collabEdgeConfigId = configId
+        projects[i].updatedAt = Date()
+        saveManifest()
+    }
+}
+
+// MARK: - CollaborationBundle
+
+/// Codable snapshot pushed to / pulled from Vercel Edge Config.
+struct CollaborationBundle: Codable {
+    var collections: [KoalaCollection]
+    var environments: [KoalaEnvironment]
+    var globalVariables: [KeyValuePair]
+    var schemaVersion: Int
+
+    static let currentSchemaVersion: Int = 1
+
+    init(
+        collections: [KoalaCollection] = [],
+        environments: [KoalaEnvironment] = [],
+        globalVariables: [KeyValuePair] = [],
+        schemaVersion: Int = CollaborationBundle.currentSchemaVersion
+    ) {
+        self.collections = collections
+        self.environments = environments
+        self.globalVariables = globalVariables
+        self.schemaVersion = schemaVersion
     }
 }

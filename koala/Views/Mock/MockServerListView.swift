@@ -12,9 +12,9 @@ struct MockServerListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            serverList
+            sectionHeader
             Divider()
-            addButton
+            serverList
         }
         .background(Color.clear)
         .sheet(isPresented: $showingSetup) {
@@ -150,19 +150,21 @@ struct MockServerListView: View {
         }
     }
 
-    // MARK: - Footer
+    // MARK: - Section Header
 
-    private var addButton: some View {
-        Button {
-            showingSetup = true
-        } label: {
-            Label("New Mock Server", systemImage: "plus")
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+    private var sectionHeader: some View {
+        HStack {
+            Text("Mock Servers")
+                .font(.headline)
+                .padding(.leading, 12)
+            Spacer()
+            Button { showingSetup = true } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 12)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
+        .padding(.vertical, 8)
     }
 
     // MARK: - Helpers

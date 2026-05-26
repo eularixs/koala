@@ -21,6 +21,22 @@ struct MainWindowView: View {
     // MARK: Project Popover
     @State private var showProjectPopover = false
 
+    // MARK: Search
+    @State private var showSearchSheet = false
+
+    // MARK: Collaboration Popover
+    @State private var showCollabPopover = false
+
+    // MARK: Tag Manager
+    @State private var showTagManager = false
+    @State private var showTagPicker = false
+
+    // MARK: Rename Popover
+    @State private var showRenamePopover = false
+    @State private var renameBuffer: String = ""
+
+    @Environment(WorkspaceState.self) private var workspaceState
+
     // MARK: openWindow environment
     @Environment(\.openWindow) private var openWindow
 
@@ -45,7 +61,16 @@ struct MainWindowView: View {
         .navigationTitle("")
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                projectMenu
+                projectIconButton
+            }
+            ToolbarItem(placement: .principal) {
+                projectNameButton
+            }
+            ToolbarItem(placement: .primaryAction) {
+                searchButton
+            }
+            ToolbarItem(placement: .primaryAction) {
+                newTabButton
             }
             ToolbarItem(placement: .primaryAction) {
                 environmentMenu
@@ -74,30 +99,52 @@ struct MainWindowView: View {
         } message: { error in
             Text(error)
         }
+        .sheet(isPresented: $showSearchSheet) {
+            SearchRequestsSheet { request in
+                workspaceState.openRequest(request)
+            }
+            .environment(appState)
+        }
+        .sheet(isPresented: $showTagManager) {
+            TagManagerSheet()
+                .environment(appState)
+        }
     }
 
-    // MARK: - Project Menu (gear icon → popover with search)
+    // MARK: - New Tab + Search Buttons
 
-    private var projectMenu: some View {
+    private var newTabButton: some View {
+        Button {
+            workspaceState.openNew()
+        } label: {
+            Image(systemName: "plus.square")
+                .font(.body)
+        }
+        .help("New Request Tab (⌘T)")
+    }
+
+    private var searchButton: some View {
+        Button {
+            showSearchSheet = true
+        } label: {
+            Image(systemName: "magnifyingglass")
+                .font(.body)
+        }
+        .help("Search requests (⌘F)")
+        .keyboardShortcut("f", modifiers: .command)
+    }
+
+    // MARK: - Project Icon (left) + Project Name (center)
+
+    private var projectIconButton: some View {
         Button {
             showProjectPopover.toggle()
         } label: {
-            HStack(spacing: 6) {
-                if let hex = appState.activeProject?.color, let col = Color(hex: hex) {
-                    Circle().fill(col).frame(width: 10, height: 10)
-                } else {
-                    Image(systemName: "network")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                Text(appState.activeProject?.name ?? "No Project")
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
-                    .frame(maxWidth: 180, alignment: .leading)
-                Image(systemName: "chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+            Image(systemName: "network")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Switch project")
@@ -112,6 +159,112 @@ struct MainWindowView: View {
             .environment(appState)
         }
     }
+
+    private var projectNameButton: some View {
+        HStack(spacing: 8) {
+            Button {
+                renameBuffer = appState.activeProject?.name ?? ""
+                showRenamePopover.toggle()
+            } label: {
+                Text(appState.activeProject?.name ?? "No Project")
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showRenamePopover, arrowEdge: .bottom) {
+                renamePopover
+            }
+            tagChip
+        }
+    }
+
+    private var renamePopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Rename Project")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            TextField("Project name", text: $renameBuffer)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 240)
+                .onSubmit { commitRename() }
+            HStack {
+                Spacer()
+                Button("Cancel") { showRenamePopover = false }
+                Button("Save") { commitRename() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(renameBuffer.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(14)
+        .frame(width: 280)
+    }
+
+    private func commitRename() {
+        guard let pid = appState.activeProjectId else { return }
+        let trimmed = renameBuffer.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        appState.renameProject(pid, to: trimmed)
+        showRenamePopover = false
+    }
+
+    @ViewBuilder
+    private var tagChip: some View {
+        Button {
+            showTagPicker.toggle()
+        } label: {
+            TagBadgeView(tag: appState.tag(byId: appState.activeProject?.tagId))
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showTagPicker, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                tagPickerRow(label: "No Tag", color: .secondary) {
+                    if let pid = appState.activeProjectId { appState.setTag(nil, for: pid) }
+                    showTagPicker = false
+                }
+                Divider()
+                ForEach(appState.tags) { t in
+                    tagPickerRow(label: t.name, color: Color(hex: t.colorHex) ?? .gray) {
+                        if let pid = appState.activeProjectId { appState.setTag(t.id, for: pid) }
+                        showTagPicker = false
+                    }
+                }
+                Divider()
+                Button {
+                    showTagPicker = false
+                    showTagManager = true
+                } label: {
+                    HStack {
+                        Image(systemName: "gearshape")
+                        Text("Manage Tags...")
+                        Spacer()
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(width: 200)
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func tagPickerRow(label: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Circle().fill(color).frame(width: 10, height: 10)
+                Text(label)
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
 
     // MARK: - Environment Menu
 

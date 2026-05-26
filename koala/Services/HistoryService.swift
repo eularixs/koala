@@ -4,7 +4,7 @@ import Observation
 @MainActor
 @Observable
 final class HistoryService {
-    private static let maxEntries = 500
+    private static let maxEntries = 100
 
     var entries: [HistoryEntry] = []
     private var activeProjectId: UUID? = nil
