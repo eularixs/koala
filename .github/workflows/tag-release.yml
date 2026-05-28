@@ -1,0 +1,109 @@
+name: Tag Release
+
+# Triggers on pushing a tag like v1.2.3 — builds Release DMG + creates GitHub Release.
+# Use this when bypassing the PR-merge auto-bump flow (release.yml).
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build DMG + GitHub Release
+    runs-on: macos-15
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: ver
+        env:
+          GHREF: ${{ github.ref }}
+        run: |
+          TAG="${GHREF#refs/tags/}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Build Release .app
+        run: |
+          xcodebuild \
+            -project koala.xcodeproj \
+            -scheme koala \
+            -configuration Release \
+            -derivedDataPath build \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package as DMG
+        id: package
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          APP_PATH="build/Build/Products/Release/koala.app"
+          DMG_NAME="koala-${VERSION}.dmg"
+          mkdir -p artifacts
+          hdiutil create -volname "koala" \
+            -srcfolder "$APP_PATH" \
+            -ov -format UDZO \
+            "artifacts/$DMG_NAME"
+          SHA=$(shasum -a 256 "artifacts/$DMG_NAME" | awk '{print $1}')
+          echo "dmg_name=$DMG_NAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        id: notes
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          SHA: ${{ steps.package.outputs.sha256 }}
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
+          {
+            echo "## Koala $VERSION"
+            echo ""
+            echo "### Install"
+            echo ""
+            echo '```'
+            echo 'brew install --cask eularixs/koala/koala'
+            echo '```'
+            echo ""
+            echo "Or download the DMG below."
+            echo ""
+            echo "**SHA-256:** \`$SHA\`"
+            echo ""
+            echo "### Changes"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              git log --pretty=format:"- %s" "${PREV_TAG}..${TAG}" -- 2>/dev/null || echo "(see commit history)"
+            else
+              echo "Initial release."
+            fi
+          } > release_notes.md
+          echo "notes_path=release_notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          DMG: ${{ steps.package.outputs.dmg_name }}
+          NOTES: ${{ steps.notes.outputs.notes_path }}
+        run: |
+          gh release create "$TAG" \
+            --title "Koala $VERSION" \
+            --notes-file "$NOTES" \
+            "artifacts/$DMG"
