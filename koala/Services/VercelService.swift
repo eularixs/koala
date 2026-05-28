@@ -106,6 +106,16 @@ final class VercelService {
     private let keychainKey = "vercel.oauth.token"
     private let patKeychainKey = "vercel.personalAccessToken"
     private let baseURL = "https://api.vercel.com"
+
+    /// URLSession that BYPASSES macOS system proxy. Prevents a loop where the
+    /// user has Koala system proxy enabled → Vercel API call routes through
+    /// localhost:port → fails because Koala itself can't reach api.vercel.com
+    /// through its own proxy.
+    private static let directSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.connectionProxyDictionary = [:]    // explicit: no proxy
+        return URLSession(configuration: config)
+    }()
     private let oauthTokenURL = "https://api.vercel.com/v2/oauth/access_token"
     private let oauthAuthorizeURL = "https://vercel.com/oauth/authorize"
     private let redirectURI = "koala://oauth/callback"
@@ -426,7 +436,7 @@ final class VercelService {
         request.httpBody = params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")" }
             .joined(separator: "&")
             .data(using: .utf8)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.directSession.data(for: request)
         try validateHTTPResponse(response, data: data)
         struct TokenResponse: Decodable {
             let accessToken: String
@@ -454,7 +464,7 @@ final class VercelService {
             "grant_type": "refresh_token",
         ]
         request.httpBody = params.map { "\($0.key)=\($0.value)" }.joined(separator: "&").data(using: .utf8)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.directSession.data(for: request)
         try validateHTTPResponse(response, data: data)
         return try decode(VercelToken.self, from: data)
     }
@@ -468,7 +478,7 @@ final class VercelService {
         if let body {
             request.httpBody = try JSONEncoder().encode(body)
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.directSession.data(for: request)
         try validateHTTPResponse(response, data: data)
         return data
     }
@@ -480,7 +490,7 @@ final class VercelService {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = rawBody
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.directSession.data(for: request)
         try validateHTTPResponse(response, data: data)
         return data
     }

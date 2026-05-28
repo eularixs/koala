@@ -6,6 +6,17 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AABB0003000000000000CAFE /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AABB0002000000000000CAFE /* Sparkle */; };
+		BBCC0003000000000000CAFE /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = BBCC0002000000000000CAFE /* GRDB */; };
+		CCDD0003000000000000CAFE /* NIO in Frameworks */ = {isa = PBXBuildFile; productRef = CCDD0002000000000000CAFE /* NIO */; };
+		CCDD0013000000000000CAFE /* NIOHTTP1 in Frameworks */ = {isa = PBXBuildFile; productRef = CCDD0012000000000000CAFE /* NIOHTTP1 */; };
+		CCDD0023000000000000CAFE /* NIOPosix in Frameworks */ = {isa = PBXBuildFile; productRef = CCDD0022000000000000CAFE /* NIOPosix */; };
+		CCDD0033000000000000CAFE /* NIOSSL in Frameworks */ = {isa = PBXBuildFile; productRef = CCDD0032000000000000CAFE /* NIOSSL */; };
+		CCDD0043000000000000CAFE /* X509 in Frameworks */ = {isa = PBXBuildFile; productRef = CCDD0042000000000000CAFE /* X509 */; };
+		CCDD0053000000000000CAFE /* SwiftASN1 in Frameworks */ = {isa = PBXBuildFile; productRef = CCDD0052000000000000CAFE /* SwiftASN1 */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		942F9D272FC4ACEB003F3C21 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +63,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AABB0003000000000000CAFE /* Sparkle in Frameworks */,
+				BBCC0003000000000000CAFE /* GRDB in Frameworks */,
+				CCDD0003000000000000CAFE /* NIO in Frameworks */,
+				CCDD0013000000000000CAFE /* NIOHTTP1 in Frameworks */,
+				CCDD0023000000000000CAFE /* NIOPosix in Frameworks */,
+				CCDD0033000000000000CAFE /* NIOSSL in Frameworks */,
+				CCDD0043000000000000CAFE /* X509 in Frameworks */,
+				CCDD0053000000000000CAFE /* SwiftASN1 in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +131,14 @@
 			);
 			name = koala;
 			packageProductDependencies = (
+				AABB0002000000000000CAFE /* Sparkle */,
+				BBCC0002000000000000CAFE /* GRDB */,
+				CCDD0002000000000000CAFE /* NIO */,
+				CCDD0012000000000000CAFE /* NIOHTTP1 */,
+				CCDD0022000000000000CAFE /* NIOPosix */,
+				CCDD0032000000000000CAFE /* NIOSSL */,
+				CCDD0042000000000000CAFE /* X509 */,
+				CCDD0052000000000000CAFE /* SwiftASN1 */,
 			);
 			productName = koala;
 			productReference = 942F9D182FC4ACE9003F3C21 /* koala.app */;
@@ -195,6 +222,14 @@
 			);
 			mainGroup = 942F9D0F2FC4ACE9003F3C21;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AABB0001000000000000CAFE /* XCRemoteSwiftPackageReference "Sparkle" */,
+				BBCC0001000000000000CAFE /* XCRemoteSwiftPackageReference "GRDB" */,
+				CCDD0001000000000000CAFE /* XCRemoteSwiftPackageReference "swift-nio" */,
+				CCDD0011000000000000CAFE /* XCRemoteSwiftPackageReference "swift-nio-ssl" */,
+				CCDD0021000000000000CAFE /* XCRemoteSwiftPackageReference "swift-certificates" */,
+				CCDD0031000000000000CAFE /* XCRemoteSwiftPackageReference "swift-asn1" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 942F9D192FC4ACE9003F3C21 /* Products */;
 			projectDirPath = "";
@@ -401,8 +436,8 @@
 				DEVELOPMENT_TEAM = L9J2W57QJ5;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = koala/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -428,8 +463,8 @@
 				DEVELOPMENT_TEAM = L9J2W57QJ5;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = koala/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -551,6 +586,100 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AABB0001000000000000CAFE /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.6.0;
+			};
+		};
+		BBCC0001000000000000CAFE /* XCRemoteSwiftPackageReference "GRDB" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.29.0;
+			};
+		};
+		CCDD0001000000000000CAFE /* XCRemoteSwiftPackageReference "swift-nio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.65.0;
+			};
+		};
+		CCDD0011000000000000CAFE /* XCRemoteSwiftPackageReference "swift-nio-ssl" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio-ssl";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.27.0;
+			};
+		};
+		CCDD0021000000000000CAFE /* XCRemoteSwiftPackageReference "swift-certificates" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-certificates";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.5.0;
+			};
+		};
+		CCDD0031000000000000CAFE /* XCRemoteSwiftPackageReference "swift-asn1" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-asn1";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AABB0002000000000000CAFE /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AABB0001000000000000CAFE /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+		BBCC0002000000000000CAFE /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BBCC0001000000000000CAFE /* XCRemoteSwiftPackageReference "GRDB" */;
+			productName = GRDB;
+		};
+		CCDD0002000000000000CAFE /* NIO */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCDD0001000000000000CAFE /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIO;
+		};
+		CCDD0012000000000000CAFE /* NIOHTTP1 */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCDD0001000000000000CAFE /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOHTTP1;
+		};
+		CCDD0022000000000000CAFE /* NIOPosix */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCDD0001000000000000CAFE /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOPosix;
+		};
+		CCDD0032000000000000CAFE /* NIOSSL */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCDD0011000000000000CAFE /* XCRemoteSwiftPackageReference "swift-nio-ssl" */;
+			productName = NIOSSL;
+		};
+		CCDD0042000000000000CAFE /* X509 */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCDD0021000000000000CAFE /* XCRemoteSwiftPackageReference "swift-certificates" */;
+			productName = X509;
+		};
+		CCDD0052000000000000CAFE /* SwiftASN1 */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCDD0031000000000000CAFE /* XCRemoteSwiftPackageReference "swift-asn1" */;
+			productName = SwiftASN1;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 942F9D102FC4ACE9003F3C21 /* Project object */;
 }

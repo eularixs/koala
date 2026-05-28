@@ -82,9 +82,12 @@ struct MockServerSetupView: View {
                         infoBullet("You can add endpoints once deployment is complete.")
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(4)
             }
+            .frame(maxWidth: .infinity)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func infoBullet(_ text: String) -> some View {

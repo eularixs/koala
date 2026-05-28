@@ -51,6 +51,9 @@ final class PersistenceService {
 
     func saveEnvironments(_ environments: [KoalaEnvironment], forProject id: UUID) throws {
         try ensureProjectDir(id)
+        // NOTE: Vault-flagged variables (`isVault == true`) have their `value`
+        // stripped to "" by `EnvVariable.encode(to:)`. The plaintext lives in
+        // the Keychain via `VaultService` and never reaches this file.
         try save(environments, to: projectURL(id, "environments.json"))
     }
 
@@ -62,6 +65,8 @@ final class PersistenceService {
 
     func saveGlobals(_ items: [KeyValuePair], forProject id: UUID) throws {
         try ensureProjectDir(id)
+        // NOTE: See note on `saveEnvironments` — vault values are stripped at
+        // the model layer (`KeyValuePair.encode(to:)`) and never written here.
         try save(items, to: projectURL(id, "globals.json"))
     }
 
@@ -85,6 +90,44 @@ final class PersistenceService {
     func saveMockServers(_ servers: [MockServer], forProject id: UUID) throws {
         try ensureProjectDir(id)
         try save(servers, to: projectURL(id, "mock_servers.json"))
+    }
+
+    // MARK: - Per-Project Runner Settings
+
+    /// Loads the per-request runner settings dictionary for the given project.
+    /// Returns an empty dictionary if the file does not exist.
+    func loadRunnerSettings(forProject id: UUID) throws -> [UUID: RunnerSettings] {
+        let url = projectURL(id, "runner.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        let data = try Data(contentsOf: url)
+        // Persisted as an array of RunnerSettings (UUID dict keys are awkward in JSON).
+        let arr = try decoder.decode([RunnerSettings].self, from: data)
+        var dict: [UUID: RunnerSettings] = [:]
+        for s in arr { dict[s.id] = s }
+        return dict
+    }
+
+    func saveRunnerSettings(_ settings: [UUID: RunnerSettings], forProject id: UUID) throws {
+        try ensureProjectDir(id)
+        let arr = Array(settings.values)
+        try save(arr, to: projectURL(id, "runner.json"))
+    }
+
+    // MARK: - Per-Environment Cookies
+
+    func loadCookies(forEnv id: UUID) throws -> [KoalaCookie] {
+        try loadArray(from: envURL(id, "cookies.json"))
+    }
+
+    func saveCookies(_ cookies: [KoalaCookie], forEnv id: UUID) throws {
+        try ensureEnvDir(id)
+        try save(cookies, to: envURL(id, "cookies.json"))
+    }
+
+    func deleteCookies(forEnv id: UUID) throws {
+        let dir = envDir(id)
+        guard FileManager.default.fileExists(atPath: dir.path) else { return }
+        try FileManager.default.removeItem(at: dir)
     }
 
     // MARK: - Delete Project Data
@@ -135,6 +178,19 @@ final class PersistenceService {
 
     private func ensureProjectDir(_ id: UUID) throws {
         let dir = projectDir(id)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    private func envDir(_ id: UUID) -> URL {
+        baseURL.appendingPathComponent("envs").appendingPathComponent(id.uuidString)
+    }
+
+    private func envURL(_ id: UUID, _ filename: String) -> URL {
+        envDir(id).appendingPathComponent(filename)
+    }
+
+    private func ensureEnvDir(_ id: UUID) throws {
+        let dir = envDir(id)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 

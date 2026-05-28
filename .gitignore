@@ -26,3 +26,8 @@ ruvector.db
 ruvector.db.lock
 *.rvf
 PRD.md
+paid-roadmap.md
+
+# Code coverage / profiling
+default.profraw
+*.profraw

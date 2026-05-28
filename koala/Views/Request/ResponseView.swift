@@ -7,11 +7,18 @@ import UniformTypeIdentifiers
 struct ResponseView: View {
     let response: KoalaResponse?
     let curlCommand: String
+    /// Source request used for multi-language code snippet generation.
+    /// Defaulted so existing call sites (and previews) continue to compile.
+    var request: KoalaRequest = .empty
+    /// Environment used for `{{var}}` resolution in snippets.
+    var environment: KoalaEnvironment? = nil
+    /// Globals used for `{{var}}` resolution in snippets.
+    var globalVariables: [KeyValuePair] = []
     var onSaveResponse: (() -> Void)? = nil
 
     @State private var selectedTab: ResponseTab = .body
-    @State private var bodySubTab: BodyTab = .pretty
     @State private var showFileExporter: Bool = false
+    @State private var showCopyConfirmation: Bool = false
 
     var body: some View {
         Group {
@@ -48,13 +55,26 @@ struct ResponseView: View {
 
             Spacer()
 
-            Button {
-                copyCurlToClipboard()
+            Menu {
+                ForEach(CodeLanguage.allCases) { language in
+                    Button(language.rawValue) {
+                        copySnippet(language: language)
+                    }
+                }
             } label: {
-                Label("Copy as cURL", systemImage: "doc.on.clipboard")
+                Label("Copy as...", systemImage: "doc.on.clipboard")
                     .font(.caption)
             }
-            .buttonStyle(.bordered)
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .overlay(alignment: .trailing) {
+                if showCopyConfirmation {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .padding(.trailing, -22)
+                        .transition(.opacity)
+                }
+            }
 
             Button {
                 showFileExporter = true
@@ -100,48 +120,92 @@ struct ResponseView: View {
         case .body:    bodyTab(response: response)
         case .headers: headersTab(response: response)
         case .cookies: cookiesTab(response: response)
+        case .tests:   testsTab(response: response)
         case .timeline: timelineTab(response: response)
         }
+    }
+
+    // MARK: - Tests Tab
+
+    @ViewBuilder
+    private func testsTab(response: KoalaResponse) -> some View {
+        if response.testResults.isEmpty && response.consoleLogs.isEmpty {
+            VStack(spacing: 8) {
+                Image(systemName: "checkmark.seal")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.secondary)
+                Text("No test script ran for this response.")
+                    .foregroundStyle(.secondary)
+                Text("Add a script in the Scripts tab to assert on the response.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if !response.testResults.isEmpty {
+                        testsSummary(results: response.testResults)
+                        Divider()
+                        ForEach(response.testResults) { result in
+                            TestResultRow(result: result)
+                            Divider().padding(.leading, 12)
+                        }
+                    }
+                    if !response.consoleLogs.isEmpty {
+                        consoleLogsSection(logs: response.consoleLogs)
+                    }
+                }
+            }
+        }
+    }
+
+    private func testsSummary(results: [TestResult]) -> some View {
+        let passed = results.filter(\.passed).count
+        let failed = results.count - passed
+        return HStack(spacing: 12) {
+            Label("\(passed) passed", systemImage: "checkmark.circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.green)
+            if failed > 0 {
+                Label("\(failed) failed", systemImage: "xmark.circle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.red)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.secondary.opacity(0.05))
+    }
+
+    @ViewBuilder
+    private func consoleLogsSection(logs: [String]) -> some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(logs.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        } label: {
+            Label("Console (\(logs.count))", systemImage: "terminal")
+                .font(.caption.weight(.semibold))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     // MARK: - Body Tab
 
     @ViewBuilder
     private func bodyTab(response: KoalaResponse) -> some View {
-        VStack(spacing: 0) {
-            HStack {
-                Picker("Body Sub-Tab", selection: $bodySubTab) {
-                    ForEach(BodyTab.allCases) { t in
-                        Text(t.rawValue).tag(t)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
-            Divider()
-
-            switch bodySubTab {
-            case .pretty:
-                JSONViewerView(data: response.body)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            case .raw:
-                ScrollView {
-                    Text(String(data: response.body, encoding: .utf8) ?? "<binary data>")
-                        .font(.system(.body, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            case .preview:
-                WebPreviewView(data: response.body, headers: response.headers)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
+        JSONViewerView(data: response.body)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Headers Tab
@@ -243,6 +307,26 @@ struct ResponseView: View {
     private func copyCurlToClipboard() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(curlCommand, forType: .string)
+    }
+
+    private func copySnippet(language: CodeLanguage) {
+        let snippet = CodeGenerator.generate(
+            request,
+            language: language,
+            environment: environment,
+            globals: globalVariables
+        )
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(snippet, forType: .string)
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showCopyConfirmation = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showCopyConfirmation = false
+            }
+        }
     }
 
     private func parseCookies(from headers: [String: String]) -> [ParsedCookie] {
@@ -365,6 +449,36 @@ private struct TimelineRowView: View {
                 .foregroundStyle(.primary)
         }
         .padding(.horizontal, 12)
+    }
+}
+
+// MARK: - TestResultRow
+
+private struct TestResultRow: View {
+    let result: TestResult
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: result.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundStyle(result.passed ? Color.green : Color.red)
+                Text(result.name)
+                    .font(.system(.body, design: .monospaced))
+                Spacer()
+                Text("\(result.durationMs) ms")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            if !result.passed, let msg = result.failureMessage {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.leading, 24)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 }
 

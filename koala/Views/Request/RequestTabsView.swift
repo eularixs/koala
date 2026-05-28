@@ -43,6 +43,38 @@ struct RequestTabsView<Content: View>: View {
                 }
                 .keyboardShortcut("t", modifiers: .command)
                 .hidden()
+
+                Button("") { jumpToTab(index: 0) }
+                    .keyboardShortcut("1", modifiers: .command).hidden()
+                Button("") { jumpToTab(index: 1) }
+                    .keyboardShortcut("2", modifiers: .command).hidden()
+                Button("") { jumpToTab(index: 2) }
+                    .keyboardShortcut("3", modifiers: .command).hidden()
+                Button("") { jumpToTab(index: 3) }
+                    .keyboardShortcut("4", modifiers: .command).hidden()
+                Button("") { jumpToTab(index: 4) }
+                    .keyboardShortcut("5", modifiers: .command).hidden()
+                Button("") { jumpToTab(index: 5) }
+                    .keyboardShortcut("6", modifiers: .command).hidden()
+                Button("") { jumpToTab(index: 6) }
+                    .keyboardShortcut("7", modifiers: .command).hidden()
+                Button("") { jumpToTab(index: 7) }
+                    .keyboardShortcut("8", modifiers: .command).hidden()
+                Button("") { jumpToTab(index: 8) }
+                    .keyboardShortcut("9", modifiers: .command).hidden()
+
+                Button("") {
+                    if let last = workspaceState.openTabs.last {
+                        workspaceState.activeTabId = last.id
+                    }
+                }
+                .keyboardShortcut("0", modifiers: .command)
+                .hidden()
+
+                Button("") { cycleTab(offset: 1) }
+                    .keyboardShortcut("]", modifiers: [.command, .shift]).hidden()
+                Button("") { cycleTab(offset: -1) }
+                    .keyboardShortcut("[", modifiers: [.command, .shift]).hidden()
             }
         )
         .confirmationDialog(
@@ -63,6 +95,19 @@ struct RequestTabsView<Content: View>: View {
         } message: { _ in
             Text("This request has unsaved changes. They will be lost if you close the tab.")
         }
+    }
+
+    private func jumpToTab(index: Int) {
+        guard index >= 0, index < workspaceState.openTabs.count else { return }
+        workspaceState.activeTabId = workspaceState.openTabs[index].id
+    }
+
+    private func cycleTab(offset: Int) {
+        let count = workspaceState.openTabs.count
+        guard count > 0 else { return }
+        let currentIdx = workspaceState.openTabs.firstIndex(where: { $0.id == workspaceState.activeTabId }) ?? 0
+        let nextIdx = ((currentIdx + offset) % count + count) % count
+        workspaceState.activeTabId = workspaceState.openTabs[nextIdx].id
     }
 
     private func requestClose(tabId: UUID) {

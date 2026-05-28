@@ -2,16 +2,31 @@ import Foundation
 
 enum VariableResolver {
 
+    /// Resolve `{{var}}` placeholders. Lookup order:
+    ///   1. Environment non-vault variables
+    ///   2. Globals (non-vault)
+    ///   3. Collection variables (non-vault)
+    ///   4. Vault-flagged variables — read from `vault` (Keychain) ONLY if
+    ///      `vault` and `projectId` are provided. Vault is the last resort so
+    ///      that a non-secret override in env/globals always wins, and so that
+    ///      UI preview paths (which pass `vault: nil`) never hit the Keychain.
     static func resolve(
         _ input: String,
         environment: KoalaEnvironment?,
         globals: [KeyValuePair],
-        collectionVariables: [KeyValuePair] = []
+        collectionVariables: [KeyValuePair] = [],
+        vault: VaultService? = nil,
+        projectId: UUID? = nil
     ) -> String {
         let pattern = #"\{\{([^{}]+)\}\}"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return input }
 
         let lookup = buildLookup(
+            globals: globals,
+            environment: environment,
+            collectionVariables: collectionVariables
+        )
+        let vaultLookup = buildVaultLookup(
             globals: globals,
             environment: environment,
             collectionVariables: collectionVariables
@@ -26,6 +41,10 @@ enum VariableResolver {
             let varName = String(input[nameRange]).trimmingCharacters(in: .whitespaces)
             if let value = lookup[varName] {
                 result.replaceSubrange(swiftRange, with: value)
+            } else if vaultLookup.contains(varName),
+                      let vault, let projectId,
+                      let secret = vault.get(varName, projectId: projectId) {
+                result.replaceSubrange(swiftRange, with: secret)
             }
         }
         return result
@@ -34,15 +53,17 @@ enum VariableResolver {
     static func resolveAll(
         in request: KoalaRequest,
         environment: KoalaEnvironment?,
-        globals: [KeyValuePair]
+        globals: [KeyValuePair],
+        vault: VaultService? = nil,
+        projectId: UUID? = nil
     ) -> KoalaRequest {
         var r = request
-        r.url = resolve(r.url, environment: environment, globals: globals)
-        r.name = resolve(r.name, environment: environment, globals: globals)
-        r.queryParams = r.queryParams.map { resolveKV($0, environment: environment, globals: globals) }
-        r.headers = r.headers.map { resolveKV($0, environment: environment, globals: globals) }
-        r.body = resolveBody(r.body, environment: environment, globals: globals)
-        r.auth = resolveAuth(r.auth, environment: environment, globals: globals)
+        r.url = resolve(r.url, environment: environment, globals: globals, vault: vault, projectId: projectId)
+        r.name = resolve(r.name, environment: environment, globals: globals, vault: vault, projectId: projectId)
+        r.queryParams = r.queryParams.map { resolveKV($0, environment: environment, globals: globals, vault: vault, projectId: projectId) }
+        r.headers = r.headers.map { resolveKV($0, environment: environment, globals: globals, vault: vault, projectId: projectId) }
+        r.body = resolveBody(r.body, environment: environment, globals: globals, vault: vault, projectId: projectId)
+        r.auth = resolveAuth(r.auth, environment: environment, globals: globals, vault: vault, projectId: projectId)
         return r
     }
 
@@ -52,37 +73,65 @@ enum VariableResolver {
         collectionVariables: [KeyValuePair]
     ) -> [String: String] {
         var lookup: [String: String] = [:]
-        for kv in globals where kv.isEnabled {
+        // Skip vault-flagged entries — their plaintext is not in memory here.
+        for kv in globals where kv.isEnabled && !kv.isVault {
             lookup[kv.key] = kv.value
         }
         if let env = environment {
-            for variable in env.variables where variable.isEnabled {
+            for variable in env.variables where variable.isEnabled && !variable.isVault {
                 lookup[variable.key] = variable.value
             }
         }
-        for kv in collectionVariables where kv.isEnabled {
+        for kv in collectionVariables where kv.isEnabled && !kv.isVault {
             lookup[kv.key] = kv.value
         }
         return lookup
     }
 
+    /// Names of vault-flagged variables that are enabled, across all scopes.
+    /// Used to gate Keychain lookups so we only hit the Keychain for names
+    /// that are actually declared as vault entries.
+    private static func buildVaultLookup(
+        globals: [KeyValuePair],
+        environment: KoalaEnvironment?,
+        collectionVariables: [KeyValuePair]
+    ) -> Set<String> {
+        var names: Set<String> = []
+        for kv in globals where kv.isEnabled && kv.isVault {
+            names.insert(kv.key)
+        }
+        if let env = environment {
+            for v in env.variables where v.isEnabled && v.isVault {
+                names.insert(v.key)
+            }
+        }
+        for kv in collectionVariables where kv.isEnabled && kv.isVault {
+            names.insert(kv.key)
+        }
+        return names
+    }
+
     private static func resolveKV(
         _ pair: KeyValuePair,
         environment: KoalaEnvironment?,
-        globals: [KeyValuePair]
+        globals: [KeyValuePair],
+        vault: VaultService?,
+        projectId: UUID?
     ) -> KeyValuePair {
         var p = pair
-        p.key = resolve(p.key, environment: environment, globals: globals)
-        p.value = resolve(p.value, environment: environment, globals: globals)
+        p.key = resolve(p.key, environment: environment, globals: globals, vault: vault, projectId: projectId)
+        p.value = resolve(p.value, environment: environment, globals: globals, vault: vault, projectId: projectId)
         return p
     }
 
     private static func resolveBody(
         _ body: RequestBody,
         environment: KoalaEnvironment?,
-        globals: [KeyValuePair]
+        globals: [KeyValuePair],
+        vault: VaultService?,
+        projectId: UUID?
     ) -> RequestBody {
-        let r: (String) -> String = { resolve($0, environment: environment, globals: globals) }
+        let r: (String) -> String = { resolve($0, environment: environment, globals: globals, vault: vault, projectId: projectId) }
         switch body {
         case .none:
             return .none
@@ -93,9 +142,9 @@ enum VariableResolver {
         case .graphql(let query, let variables):
             return .graphql(query: r(query), variables: r(variables))
         case .formURLEncoded(let pairs):
-            return .formURLEncoded(pairs.map { resolveKV($0, environment: environment, globals: globals) })
+            return .formURLEncoded(pairs.map { resolveKV($0, environment: environment, globals: globals, vault: vault, projectId: projectId) })
         case .multipart(let items):
-            return .multipart(items.map { resolveMultipart($0, environment: environment, globals: globals) })
+            return .multipart(items.map { resolveMultipart($0, environment: environment, globals: globals, vault: vault, projectId: projectId) })
         case .binary(let url):
             return .binary(url)
         }
@@ -104,12 +153,14 @@ enum VariableResolver {
     private static func resolveMultipart(
         _ item: MultipartItem,
         environment: KoalaEnvironment?,
-        globals: [KeyValuePair]
+        globals: [KeyValuePair],
+        vault: VaultService?,
+        projectId: UUID?
     ) -> MultipartItem {
         var m = item
-        m.key = resolve(m.key, environment: environment, globals: globals)
+        m.key = resolve(m.key, environment: environment, globals: globals, vault: vault, projectId: projectId)
         if m.type == .text {
-            m.value = resolve(m.value, environment: environment, globals: globals)
+            m.value = resolve(m.value, environment: environment, globals: globals, vault: vault, projectId: projectId)
         }
         return m
     }
@@ -117,9 +168,11 @@ enum VariableResolver {
     private static func resolveAuth(
         _ auth: AuthConfig,
         environment: KoalaEnvironment?,
-        globals: [KeyValuePair]
+        globals: [KeyValuePair],
+        vault: VaultService?,
+        projectId: UUID?
     ) -> AuthConfig {
-        let r: (String) -> String = { resolve($0, environment: environment, globals: globals) }
+        let r: (String) -> String = { resolve($0, environment: environment, globals: globals, vault: vault, projectId: projectId) }
         switch auth {
         case .none:
             return .none

@@ -5,12 +5,32 @@ struct MainDetailRouter: View {
 
     var body: some View {
         switch appState.selectedSidebarSection {
+        case .environments:
+            environmentDetail
         case .mockServers:
             mockServerDetail
+        case .recording:
+            if FeatureFlags.proEnabled {
+                RecordingDashboardView()
+            }
+        case .automation:
+            if FeatureFlags.proEnabled {
+                AutomationDashboardView()
+            }
         default:
             RequestTabsView { tabBinding in
                 RequestEditorView(tab: tabBinding)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var environmentDetail: some View {
+        if let id = appState.environmentDetailId ?? appState.selectedEnvironmentId,
+           appState.environments.contains(where: { $0.id == id }) {
+            EnvironmentDetailView(environmentId: id)
+        } else {
+            EnvironmentPlaceholderView()
         }
     }
 

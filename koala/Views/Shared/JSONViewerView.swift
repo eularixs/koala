@@ -48,8 +48,10 @@ indirect enum JSONNode: Identifiable {
 struct JSONViewerView: View {
     private let rawText: String
     private let node: JSONNode?
+    private let rawObject: Any?
 
-    @State private var mode: ViewMode = .tree
+    @State private var showRaw: Bool = false
+    @State private var pathQuery: String = ""
 
     enum ViewMode: String, CaseIterable {
         case tree = "Tree"
@@ -62,9 +64,11 @@ struct JSONViewerView: View {
            let prettyText = String(data: prettyData, encoding: .utf8) {
             rawText = prettyText
             node = JSONNode.build(from: obj)
+            rawObject = obj
         } else {
             rawText = String(data: data, encoding: .utf8) ?? "<binary data>"
             node = nil
+            rawObject = nil
         }
     }
 
@@ -73,47 +77,117 @@ struct JSONViewerView: View {
         if let data = text.data(using: .utf8),
            let obj = try? JSONSerialization.jsonObject(with: data) {
             node = JSONNode.build(from: obj)
+            rawObject = obj
         } else {
             node = nil
+            rawObject = nil
+        }
+    }
+
+    /// Filtered nodes for a non-empty JSONPath query.
+    /// `nil` → no query active. Empty `[]` → query ran but matched nothing.
+    private var filteredNodes: [JSONNode]? {
+        let trimmed = pathQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let rawObject else { return nil }
+        guard let matches = JSONPathEvaluator.evaluate(trimmed, in: rawObject) else { return [] }
+        return matches.enumerated().map { idx, value in
+            // Use a synthetic key showing the match index for clarity.
+            JSONNode.build(from: value, key: matches.count > 1 ? "match[\(idx)]" : nil)
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            toolbar
-            Divider()
-            contentView
-        }
-    }
-
-    private var toolbar: some View {
-        HStack {
-            Picker("Mode", selection: $mode) {
-                ForEach(ViewMode.allCases, id: \.self) { m in
-                    Text(m.rawValue).tag(m)
+        VStack(spacing: 0) {
+            if node != nil {
+                searchBar
+                Divider()
+            }
+            ZStack(alignment: .topTrailing) {
+                Group {
+                    if showRaw || node == nil {
+                        rawView
+                    } else {
+                        treeView
+                    }
+                }
+                // Tiny toggle button if JSON parsed — switch between tree and raw text
+                if node != nil {
+                    Button {
+                        showRaw.toggle()
+                    } label: {
+                        Image(systemName: showRaw ? "list.bullet.indent" : "doc.plaintext")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(6)
+                            .background(.background.tertiary, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(showRaw ? "Show tree" : "Show raw text")
+                    .padding(8)
                 }
             }
-            .pickerStyle(.segmented)
-            .fixedSize()
-            Spacer()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
     }
 
-    @ViewBuilder
-    private var contentView: some View {
-        switch mode {
-        case .tree:
-            treeView
-        case .raw:
-            rawView
+    // MARK: - Search bar
+
+    private var searchBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextField("$.users[0].email — JSONPath filter", text: $pathQuery)
+                .textFieldStyle(.plain)
+                .font(.system(.caption, design: .monospaced))
+                .disableAutocorrection(true)
+
+            if !pathQuery.isEmpty {
+                if let matches = filteredNodes, !matches.isEmpty {
+                    Text("\(matches.count) match\(matches.count == 1 ? "" : "es")")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("no match")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                }
+
+                Button {
+                    pathQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear filter")
+            }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
     private var treeView: some View {
-        if let node {
+        if let filtered = filteredNodes {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if filtered.isEmpty {
+                        Text("No matches for path.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 8)
+                    } else {
+                        ForEach(filtered) { match in
+                            JSONNodeView(node: match, depth: 0)
+                        }
+                    }
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        } else if let node {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
                     JSONNodeView(node: node, depth: 0)
@@ -250,7 +324,10 @@ private struct JSONNodeView: View {
     }
 
     private func keyText(_ key: String) -> some View {
-        Text(key).foregroundStyle(.primary).fontWeight(.medium)
+        // Distinct color for keys (cyan/teal) so they pop vs values.
+        Text("\"\(key)\"")
+            .foregroundStyle(Color(red: 0.45, green: 0.78, blue: 0.95))
+            .fontWeight(.medium)
     }
 }
 

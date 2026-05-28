@@ -21,8 +21,12 @@ struct MainWindowView: View {
     // MARK: Project Popover
     @State private var showProjectPopover = false
 
+    // MARK: Environment Popover
+    @State private var showEnvPopover = false
+
     // MARK: Search
     @State private var showSearchSheet = false
+    @State private var showGlobalSearchSheet = false
 
     // MARK: Collaboration Popover
     @State private var showCollabPopover = false
@@ -105,6 +109,20 @@ struct MainWindowView: View {
             }
             .environment(appState)
         }
+        .sheet(isPresented: $showGlobalSearchSheet) {
+            GlobalSearchSheet { project, request in
+                appState.switchProject(to: project.id)
+                workspaceState.openRequest(request)
+                showGlobalSearchSheet = false
+            }
+            .environment(appState)
+            .environment(workspaceState)
+        }
+        .background(
+            Button("") { showGlobalSearchSheet = true }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .hidden()
+        )
         .sheet(isPresented: $showTagManager) {
             TagManagerSheet()
                 .environment(appState)
@@ -269,43 +287,56 @@ struct MainWindowView: View {
     // MARK: - Environment Menu
 
     private var environmentMenu: some View {
-        Menu {
-            Button("No Environment") {
-                appState.selectedEnvironmentId = nil
-            }
-            if !appState.environments.isEmpty {
-                Divider()
-                ForEach(appState.environments) { env in
-                    Button {
-                        appState.selectedEnvironmentId = env.id
-                    } label: {
-                        HStack {
-                            if let hex = env.color, let col = Color(hex: hex) {
-                                Circle().fill(col).frame(width: 10, height: 10)
-                            }
-                            Text(env.name)
-                            if appState.selectedEnvironmentId == env.id {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            }
-            Divider()
-            Button("Manage Environments...") {
-                appState.selectedSidebarSection = .environments
-            }
+        Button {
+            showEnvPopover.toggle()
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "leaf")
-                if let hex = appState.selectedEnvironment?.color, let col = Color(hex: hex) {
-                    Circle().fill(col).frame(width: 9, height: 9)
-                }
-            }
-            .font(.callout)
+            envIconLabel
         }
-        .menuIndicator(.hidden)
-        .help(appState.selectedEnvironment?.name ?? "No environment selected")
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: appState.selectedEnvironment?.name ?? "No environment selected"))
+        .popover(isPresented: $showEnvPopover, arrowEdge: .bottom) {
+            EnvironmentPickerPopover(
+                showEnvPopover: $showEnvPopover,
+                onManageEnvironments: {
+                    showEnvPopover = false
+                    appState.selectedSidebarSection = .environments
+                }
+            )
+            .environment(appState)
+        }
+    }
+
+    @ViewBuilder
+    private var envIconLabel: some View {
+        if let env = appState.selectedEnvironment {
+            let color = (env.color.flatMap { Color(hex: $0) }) ?? .accentColor
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+                Text(env.name)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 22)
+            .background(color.opacity(0.16), in: Capsule())
+            .overlay(Capsule().stroke(color.opacity(0.35), lineWidth: 0.5))
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: "leaf")
+                    .font(.caption)
+                Text("No env")
+                    .font(.caption.weight(.medium))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 9)
+            .frame(height: 22)
+            .background(Color.secondary.opacity(0.10), in: Capsule())
+            .overlay(Capsule().stroke(Color.secondary.opacity(0.20), lineWidth: 0.5))
+        }
     }
 
     // MARK: - File Menu
@@ -320,6 +351,7 @@ struct MainWindowView: View {
             Menu {
                 Button("Postman v2.1") { beginExport(.postman) }
                 Button("OpenAPI 3.0") { beginExport(.openapi) }
+                Button("HAR 1.2") { beginExport(.har) }
                 Button("Markdown") { beginExport(.markdown) }
                 Button("Koala Native") { beginExport(.koalaNative) }
             } label: {
@@ -376,6 +408,7 @@ struct MainWindowView: View {
     private var exportContentType: UTType {
         switch exportFormat {
         case .markdown: return .plainText
+        case .har: return .json
         default: return .json
         }
     }
@@ -406,20 +439,24 @@ private struct ProjectSwitcherPopover: View {
             Divider()
             manageRow
         }
-        .frame(width: 280)
-        .frame(maxHeight: 320)
+        .frame(width: 460)
+        .frame(minHeight: 420, maxHeight: 580)
     }
 
     private var searchField: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-                .font(.caption)
+                .font(.body)
             TextField("Search projects", text: $search)
                 .textFieldStyle(.plain)
+                .font(.body)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
     }
 
     private var projectList: some View {
@@ -436,7 +473,8 @@ private struct ProjectSwitcherPopover: View {
     }
 
     private func projectRow(_ project: Project) -> some View {
-        Button {
+        let isSelected = appState.activeProjectId == project.id
+        return Button {
             appState.switchProject(to: project.id)
             showProjectPopover = false
         } label: {
@@ -445,18 +483,14 @@ private struct ProjectSwitcherPopover: View {
                     .fill(Color(hex: project.color ?? "") ?? .secondary.opacity(0.4))
                     .frame(width: 10, height: 10)
                 Text(project.name)
-                    .font(.callout)
+                    .font(.body)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Spacer()
-                if appState.activeProjectId == project.id {
-                    Image(systemName: "checkmark")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -469,6 +503,115 @@ private struct ProjectSwitcherPopover: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Text("Manage Projects")
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - EnvironmentPickerPopover
+
+private struct EnvironmentPickerPopover: View {
+    @Environment(AppState.self) private var appState
+    @Binding var showEnvPopover: Bool
+    let onManageEnvironments: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            envList
+            Divider()
+            manageRow
+        }
+        .frame(width: 340)
+        .frame(minHeight: 360, maxHeight: 520)
+    }
+
+    private var envList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                noEnvRow
+                if !appState.environments.isEmpty {
+                    Divider().padding(.leading, 32)
+                    ForEach(appState.environments) { env in
+                        envRow(env)
+                        if env.id != appState.environments.last?.id {
+                            Divider().padding(.leading, 32)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var noEnvRow: some View {
+        let isSelected = appState.selectedEnvironmentId == nil
+        return Button {
+            appState.selectedEnvironmentId = nil
+            showEnvPopover = false
+        } label: {
+            HStack(spacing: 8) {
+                Circle()
+                    .stroke(Color.secondary.opacity(0.5), lineWidth: 1)
+                    .frame(width: 10, height: 10)
+                Text("No Environment")
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func envRow(_ env: KoalaEnvironment) -> some View {
+        let isSelected = appState.selectedEnvironmentId == env.id
+        let color = (env.color.flatMap { Color(hex: $0) }) ?? .secondary
+        return Button {
+            appState.selectedEnvironmentId = env.id
+            showEnvPopover = false
+        } label: {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 10, height: 10)
+                Text(env.name)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer()
+                if env.name.lowercased() == "default" {
+                    Text("default")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(isSelected ? color.opacity(0.18) : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var manageRow: some View {
+        Button(action: onManageEnvironments) {
+            HStack(spacing: 8) {
+                Image(systemName: "gearshape")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("Manage Environments")
                     .font(.callout)
                     .foregroundStyle(.primary)
                 Spacer()

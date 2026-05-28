@@ -28,6 +28,10 @@ struct KoalaResponse: Codable, Hashable {
     var durationMs: Int
     var sizeBytes: Int
     var timeline: ResponseTimeline
+    /// Test assertions produced by the post-response script.
+    var testResults: [TestResult] = []
+    /// `console.log(...)` output captured during script execution.
+    var consoleLogs: [String] = []
 
     var isSuccess: Bool { (200..<300).contains(statusCode) }
     var isClientError: Bool { (400..<500).contains(statusCode) }
@@ -43,6 +47,47 @@ struct KoalaResponse: Codable, Hashable {
             sizeBytes: 0,
             timeline: .zero
         )
+    }
+
+    // MARK: Backwards-compatible decode (testResults / consoleLogs default to empty)
+    enum CodingKeys: String, CodingKey {
+        case statusCode, statusText, headers, body, durationMs, sizeBytes, timeline
+        case testResults, consoleLogs
+    }
+
+    init(
+        statusCode: Int,
+        statusText: String,
+        headers: [String: String],
+        body: Data,
+        durationMs: Int,
+        sizeBytes: Int,
+        timeline: ResponseTimeline,
+        testResults: [TestResult] = [],
+        consoleLogs: [String] = []
+    ) {
+        self.statusCode = statusCode
+        self.statusText = statusText
+        self.headers = headers
+        self.body = body
+        self.durationMs = durationMs
+        self.sizeBytes = sizeBytes
+        self.timeline = timeline
+        self.testResults = testResults
+        self.consoleLogs = consoleLogs
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        statusCode = try c.decode(Int.self, forKey: .statusCode)
+        statusText = try c.decode(String.self, forKey: .statusText)
+        headers = try c.decode([String: String].self, forKey: .headers)
+        body = try c.decode(Data.self, forKey: .body)
+        durationMs = try c.decode(Int.self, forKey: .durationMs)
+        sizeBytes = try c.decode(Int.self, forKey: .sizeBytes)
+        timeline = try c.decode(ResponseTimeline.self, forKey: .timeline)
+        testResults = (try? c.decodeIfPresent([TestResult].self, forKey: .testResults)) ?? []
+        consoleLogs = (try? c.decodeIfPresent([String].self, forKey: .consoleLogs)) ?? []
     }
 }
 
@@ -61,6 +106,8 @@ struct KoalaRequest: Identifiable, Codable, Hashable {
     var testScript: String?
     /// Whether this request is served from the mock endpoint instead of the live URL.
     var isMock: Bool
+    /// Free-form markdown notes documenting the request. Optional for backwards-compat.
+    var notes: String?
     var createdAt: Date
     var updatedAt: Date
 
@@ -76,6 +123,7 @@ struct KoalaRequest: Identifiable, Codable, Hashable {
         preRequestScript: String? = nil,
         testScript: String? = nil,
         isMock: Bool = false,
+        notes: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -90,6 +138,7 @@ struct KoalaRequest: Identifiable, Codable, Hashable {
         self.preRequestScript = preRequestScript
         self.testScript = testScript
         self.isMock = isMock
+        self.notes = notes
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -97,7 +146,7 @@ struct KoalaRequest: Identifiable, Codable, Hashable {
     // MARK: Backwards-compatible decode — isMock defaults to false for older data
     enum CodingKeys: String, CodingKey {
         case id, name, method, url, queryParams, headers, auth, body
-        case preRequestScript, testScript, isMock, createdAt, updatedAt
+        case preRequestScript, testScript, isMock, notes, createdAt, updatedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -113,6 +162,7 @@ struct KoalaRequest: Identifiable, Codable, Hashable {
         preRequestScript = try? c.decodeIfPresent(String.self, forKey: .preRequestScript)
         testScript = try? c.decodeIfPresent(String.self, forKey: .testScript)
         isMock = (try? c.decodeIfPresent(Bool.self, forKey: .isMock)) ?? false
+        notes = try? c.decodeIfPresent(String.self, forKey: .notes)
         createdAt = (try? c.decode(Date.self, forKey: .createdAt)) ?? Date()
         updatedAt = (try? c.decode(Date.self, forKey: .updatedAt)) ?? Date()
     }

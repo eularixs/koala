@@ -5,18 +5,18 @@ struct MethodPickerView: View {
 
     @State private var showCustomSheet = false
     @State private var customMethodDraft = ""
+    @State private var showPicker = false
 
     var body: some View {
-        Menu {
-            standardMethodItems
-            Divider()
-            customMethodItem
+        Button {
+            showPicker.toggle()
         } label: {
             methodLabel
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .buttonStyle(.plain)
+        .popover(isPresented: $showPicker, arrowEdge: .bottom) {
+            methodPickerPopover
+        }
         .sheet(isPresented: $showCustomSheet) {
             CustomMethodSheet(draft: $customMethodDraft) { submitted in
                 if !submitted.isEmpty {
@@ -26,49 +26,99 @@ struct MethodPickerView: View {
         }
     }
 
-    private var methodLabel: some View {
-        HStack(spacing: 4) {
-            Text(method.displayName)
-                .font(.system(.body, design: .monospaced).weight(.semibold))
-                .foregroundStyle(method.color)
-            Image(systemName: "chevron.down")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(method.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-    }
-
-    @ViewBuilder
-    private var standardMethodItems: some View {
-        ForEach(HTTPMethod.allCases) { m in
-            Button {
-                method = .standard(m)
-            } label: {
-                HStack {
-                    Text(m.displayName)
-                        .foregroundStyle(m.color)
-                        .fontWeight(.semibold)
-                    if case .standard(let current) = method, current == m {
-                        Spacer()
-                        Image(systemName: "checkmark")
-                    }
+    private var methodPickerPopover: some View {
+        VStack(spacing: 2) {
+            ForEach(HTTPMethod.allCases) { m in
+                pickerButton(
+                    label: m.displayName,
+                    color: m.color,
+                    secondary: nil,
+                    isCurrent: { if case .standard(let c) = method, c == m { return true }; return false }()
+                ) {
+                    method = .standard(m)
+                    showPicker = false
                 }
             }
+            Divider().padding(.vertical, 2)
+            pickerButton(
+                label: "WS",
+                color: .cyan,
+                secondary: "WebSocket",
+                isCurrent: method == .websocket
+            ) {
+                method = .websocket
+                showPicker = false
+            }
+            pickerButton(
+                label: "SSE",
+                color: Color(red: 0.6, green: 0.3, blue: 0.85),
+                secondary: "Server-Sent Events",
+                isCurrent: method == .sse
+            ) {
+                method = .sse
+                showPicker = false
+            }
+            Divider().padding(.vertical, 2)
+            Button {
+                showPicker = false
+                if case .custom(let existing) = method {
+                    customMethodDraft = existing
+                } else {
+                    customMethodDraft = ""
+                }
+                showCustomSheet = true
+            } label: {
+                HStack {
+                    Text("Custom...")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
+        .frame(width: 200)
     }
 
-    private var customMethodItem: some View {
-        Button("Custom...") {
-            if case .custom(let existing) = method {
-                customMethodDraft = existing
-            } else {
-                customMethodDraft = ""
+    private func pickerButton(
+        label: String,
+        color: Color,
+        secondary: String?,
+        isCurrent: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(label)
+                    .foregroundStyle(isCurrent ? Color.white : color)
+                    .fontWeight(.semibold)
+                if let secondary {
+                    Text(secondary)
+                        .foregroundStyle(isCurrent ? Color.white.opacity(0.85) : .secondary)
+                }
+                Spacer(minLength: 0)
             }
-            showCustomSheet = true
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(isCurrent ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
+
+    private var methodLabel: some View {
+        Text(method.displayName)
+            .font(.system(.body, design: .monospaced).weight(.semibold))
+            .foregroundStyle(method.color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(method.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+    }
+
 }
 
 // MARK: - CustomMethodSheet

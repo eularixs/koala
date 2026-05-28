@@ -84,7 +84,6 @@ struct CollectionEditorSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.borderless)
-                        Spacer()
                     }
                 }
             }

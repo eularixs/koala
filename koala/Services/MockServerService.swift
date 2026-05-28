@@ -109,8 +109,15 @@ final class MockServerService {
     private func findOrCreateEdgeConfig(slug: String, fromExisting: String?) async throws -> String {
         if let id = fromExisting, !id.isEmpty { return id }
         let configs = (try? await vercelService.listEdgeConfigs()) ?? []
+        // Try exact slug match first
         if let match = configs.first(where: { $0.slug == slug }) {
             return match.id
+        }
+        // Vercel Hobby/Free plan caps at 1 Edge Config per account.
+        // If user already has at least one, REUSE it (mock servers share via
+        // key prefix mock_{slug}_{METHOD}_{path} so they don't collide).
+        if let firstExisting = configs.first {
+            return firstExisting.id
         }
         return try await vercelService.createEdgeConfig(slug: slug)
     }

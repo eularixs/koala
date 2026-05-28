@@ -5,18 +5,24 @@ struct HistoryView: View {
     @Environment(HistoryService.self) private var historyService
     @State private var filterURL: String = ""
     @State private var filterMethod: String = "All"
+    @State private var selection: Set<UUID> = []
+    @State private var diffPair: DiffPair? = nil
 
     var body: some View {
         VStack(spacing: 0) {
             filterBar
+            if !selection.isEmpty {
+                selectionBar
+            }
             Divider()
             if filteredEntries.isEmpty {
                 emptyState
             } else {
                 List {
                     ForEach(filteredEntries) { entry in
-                        HistoryRowView(entry: entry)
-                            .onTapGesture { workspaceState.openRequest(entry.requestSnapshot) }
+                        HistoryRowView(entry: entry, isSelected: selection.contains(entry.id))
+                            .contentShape(Rectangle())
+                            .onTapGesture { handleTap(entry: entry) }
                             .contextMenu { rowContextMenu(entry: entry) }
                     }
                 }
@@ -34,6 +40,63 @@ struct HistoryView: View {
                 .disabled(historyService.entries.isEmpty)
             }
         }
+        .sheet(item: $diffPair) { pair in
+            ResponseDiffView(left: pair.left, right: pair.right)
+        }
+    }
+
+    private var selectionBar: some View {
+        HStack(spacing: 8) {
+            Text("\(selection.count) selected")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button {
+                presentDiffFromSelection()
+            } label: {
+                Label("Compare", systemImage: "arrow.left.arrow.right.square")
+            }
+            .disabled(selection.count != 2)
+            .controlSize(.small)
+            Button {
+                selection.removeAll()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.accentColor.opacity(0.08))
+    }
+
+    private func handleTap(entry: HistoryEntry) {
+        if NSEvent.modifierFlags.contains(.command) {
+            if selection.contains(entry.id) { selection.remove(entry.id) }
+            else { selection.insert(entry.id) }
+        } else if !selection.isEmpty {
+            // Already in selection mode — treat plain tap as toggle.
+            if selection.contains(entry.id) { selection.remove(entry.id) }
+            else { selection.insert(entry.id) }
+        } else {
+            workspaceState.openRequest(entry.requestSnapshot)
+        }
+    }
+
+    private func presentDiffFromSelection() {
+        let picked = historyService.entries.filter { selection.contains($0.id) }
+        guard picked.count == 2 else { return }
+        // Order by sentAt so left = older, right = newer.
+        let sorted = picked.sorted { $0.sentAt < $1.sentAt }
+        diffPair = DiffPair(left: sorted[0], right: sorted[1])
+    }
+
+    private func compareWithSelected(_ entry: HistoryEntry) {
+        guard selection.count == 1, let firstId = selection.first,
+              let other = historyService.entries.first(where: { $0.id == firstId }) else { return }
+        let sorted = [other, entry].sorted { $0.sentAt < $1.sentAt }
+        diffPair = DiffPair(left: sorted[0], right: sorted[1])
     }
 
     private var filterBar: some View {
@@ -91,8 +154,19 @@ struct HistoryView: View {
     @ViewBuilder
     private func rowContextMenu(entry: HistoryEntry) -> some View {
         Button("Replay") { workspaceState.openRequest(entry.requestSnapshot) }
+        if selection.contains(entry.id) {
+            Button("Deselect") { selection.remove(entry.id) }
+        } else {
+            Button("Select") { selection.insert(entry.id) }
+        }
+        if selection.count == 1 && !selection.contains(entry.id) {
+            Button("Compare with Selected") { compareWithSelected(entry) }
+        }
         Divider()
-        Button("Delete", role: .destructive) { historyService.remove(entry.id) }
+        Button("Delete", role: .destructive) {
+            selection.remove(entry.id)
+            historyService.remove(entry.id)
+        }
     }
 
     private var filteredEntries: [HistoryEntry] {
@@ -104,13 +178,27 @@ struct HistoryView: View {
     }
 }
 
+// MARK: - DiffPair
+
+private struct DiffPair: Identifiable {
+    let id = UUID()
+    let left: HistoryEntry
+    let right: HistoryEntry
+}
+
 // MARK: - HistoryRowView
 
 private struct HistoryRowView: View {
     let entry: HistoryEntry
+    var isSelected: Bool = false
 
     var body: some View {
         HStack(spacing: 8) {
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.accentColor)
+                    .font(.caption)
+            }
             if let response = entry.responseSnapshot {
                 StatusBadgeView(statusCode: response.statusCode, showText: false)
             } else {

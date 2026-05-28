@@ -45,6 +45,12 @@ private func makeNodes(from items: [CollectionItem]) -> [TreeNode] {
 struct CollectionTreeView: View {
     @Environment(AppState.self) private var appState
     @Environment(WorkspaceState.self) private var workspaceState
+    /// Optional — present only after LicenseService is injected at the env root.
+    /// When absent (e.g. early dev), gating gracefully falls open.
+    @Environment(LicenseService.self) private var licenseService: LicenseService?
+    /// Optional — present after AutomationSchedulerService is injected at the
+    /// env root. When absent, "Schedule Run..." is hidden.
+    @Environment(AutomationSchedulerService.self) private var scheduler: AutomationSchedulerService?
 
     /// Optional callback from sidebar host to open the "New Collection" dialog.
     var onRequestNew: (() -> Void)? = nil
@@ -61,6 +67,12 @@ struct CollectionTreeView: View {
 
     /// Persisted per-project: UUIDs of collections/folders currently expanded.
     @State private var expanded: Set<UUID> = []
+
+    /// Collection currently being run via the Run Collection sheet.
+    @State private var runCollection: KoalaCollection? = nil
+
+    /// Collection pre-selected for a new schedule via "Schedule Run..." menu.
+    @State private var scheduleForCollectionId: UUID? = nil
 
     var body: some View {
         @Bindable var state = appState
@@ -91,6 +103,20 @@ struct CollectionTreeView: View {
         .onAppear { loadExpansion(appState.activeProjectId) }
         .onChange(of: appState.activeProjectId) { _, new in loadExpansion(new) }
         .onChange(of: expanded) { _, _ in saveExpansion(appState.activeProjectId) }
+        .sheet(item: $runCollection) { col in
+            RunCollectionSheet(collection: col)
+                .environment(appState)
+        }
+        .sheet(item: Binding(
+            get: { scheduleForCollectionId.map { IdentifiedUUID(id: $0) } },
+            set: { scheduleForCollectionId = $0?.id }
+        )) { wrapper in
+            if let scheduler {
+                ScheduleEditorSheet(editing: nil, preselectedCollectionId: wrapper.id)
+                    .environment(appState)
+                    .environment(scheduler)
+            }
+        }
         .alert("New Folder", isPresented: $showAddFolder) {
             TextField("Folder name", text: $addFolderName)
             Button("Add") {
@@ -146,28 +172,13 @@ struct CollectionTreeView: View {
 
     // MARK: Recursive Node View (with persisted expansion)
 
-    private func treeNodeView(_ node: TreeNode) -> AnyView {
-        if let children = node.children, !children.isEmpty {
-            return AnyView(
-                DisclosureGroup(
-                    isExpanded: Binding(
-                        get: { expanded.contains(node.id) },
-                        set: { isOpen in
-                            if isOpen { expanded.insert(node.id) }
-                            else { expanded.remove(node.id) }
-                        }
-                    )
-                ) {
-                    ForEach(children) { child in
-                        treeNodeView(child)
-                    }
-                } label: {
-                    treeRow(node)
-                }
-            )
-        } else {
-            return AnyView(treeRow(node).tag(node.id))
-        }
+    @ViewBuilder
+    private func treeNodeView(_ node: TreeNode) -> some View {
+        TreeNodeRecursiveView(
+            node: node,
+            expanded: $expanded,
+            renderRow: { n in AnyView(treeRow(n).tag(n.id)) }
+        )
     }
 
     // MARK: Expansion Persistence
@@ -201,30 +212,59 @@ struct CollectionTreeView: View {
 
         Group {
             if renamingId == node.id {
-                TextField("", text: $renameBuffer)
-                    .onSubmit {
-                        let name = renameBuffer.trimmingCharacters(in: .whitespaces)
-                        if !name.isEmpty {
-                            if node.kind == .collection {
-                                appState.renameCollection(node.id, to: name)
-                            } else {
-                                appState.renameItem(id: node.id, to: name)
-                            }
-                            appState.saveToDisk()
-                        }
-                        renamingId = nil
-                    }
-                    .textFieldStyle(.plain)
+                HStack(spacing: 6) {
+                    rowIcon(for: node)
+                    TextField("", text: $renameBuffer)
+                        .textFieldStyle(.plain)
+                        .onSubmit { commitRename(node) }
+                        .onExitCommand { renamingId = nil }
+                }
             } else {
                 rowLabel(for: node)
-                    .onTapGesture(count: 2) {
+                    // Use simultaneousGesture so List's single-tap selection still fires.
+                    // .onTapGesture(count: 2) would consume single taps too on macOS lists.
+                    .simultaneousGesture(TapGesture(count: 2).onEnded {
                         beginRename(node)
-                    }
+                    })
                     .contextMenu { contextMenuItems(for: node) }
                     .onDrag { NSItemProvider(object: node.id.uuidString as NSString) }
             }
         }
         .selectionDisabled(!isSelectable)
+    }
+
+    /// Just the leading icon / method badge — no name. Used during rename mode
+    /// so the visual identity (folder icon, GET badge, etc.) stays in place.
+    @ViewBuilder
+    private func rowIcon(for node: TreeNode) -> some View {
+        switch node.kind {
+        case .collection:
+            Image(systemName: "folder")
+                .foregroundStyle(.secondary)
+        case .folder:
+            Image(systemName: "folder.fill")
+                .foregroundStyle(.secondary)
+        case .request(let method):
+            Text(method.rawValue)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(method.color, in: RoundedRectangle(cornerRadius: 3))
+        }
+    }
+
+    private func commitRename(_ node: TreeNode) {
+        let name = renameBuffer.trimmingCharacters(in: .whitespaces)
+        if !name.isEmpty {
+            if node.kind == .collection {
+                appState.renameCollection(node.id, to: name)
+            } else {
+                appState.renameItem(id: node.id, to: name)
+            }
+            appState.saveToDisk()
+        }
+        renamingId = nil
     }
 
     @ViewBuilder
@@ -258,6 +298,13 @@ struct CollectionTreeView: View {
             Button("Duplicate") { duplicateCollection(node.id) }
             Button("New Folder") { beginAddFolder(collectionId: node.id, parentFolderId: nil) }
             Button("New Request") { beginAddRequest(collectionId: node.id, parentFolderId: nil) }
+            Divider()
+            Button("Run Collection...") {
+                if let col = appState.collections.first(where: { $0.id == node.id }) {
+                    runCollection = col
+                }
+            }
+            scheduleRunMenuItem(for: node.id)
             Divider()
             Button("Delete", role: .destructive) {
                 appState.deleteCollection(node.id)
@@ -293,6 +340,24 @@ struct CollectionTreeView: View {
             Button("Delete", role: .destructive) {
                 appState.deleteItem(id: node.id)
                 appState.saveToDisk()
+            }
+        }
+    }
+
+    // MARK: Schedule Run (Pro)
+
+    @ViewBuilder
+    private func scheduleRunMenuItem(for collectionId: UUID) -> some View {
+        // Hide entirely when Pro features are disabled at compile/runtime.
+        if FeatureFlags.proEnabled, scheduler != nil {
+            let isPro = licenseService?.isPro ?? true
+            if isPro {
+                Button("Schedule Run...") {
+                    scheduleForCollectionId = collectionId
+                }
+            } else {
+                Button("\u{1F512} Schedule Run... (Pro)") {}
+                    .disabled(true)
             }
         }
     }
@@ -384,5 +449,47 @@ struct CollectionTreeView: View {
             if case .folder(let f) = item, containsItem(id: id, in: f.items) { return true }
         }
         return false
+    }
+}
+
+// MARK: - IdentifiedUUID
+//
+// Small wrapper so a UUID can drive a `.sheet(item:)` binding.
+
+private struct IdentifiedUUID: Identifiable, Hashable {
+    let id: UUID
+}
+
+// MARK: - TreeNodeRecursiveView
+//
+// Extracted so SwiftUI can give each node a stable view identity. Using AnyView
+// inline in a recursive `@ViewBuilder` returns the same opaque shell each level
+// and confuses List's selection tracking — leading to "click 3x to select" bug.
+
+private struct TreeNodeRecursiveView: View {
+    let node: TreeNode
+    @Binding var expanded: Set<UUID>
+    let renderRow: (TreeNode) -> AnyView
+
+    var body: some View {
+        if let children = node.children, !children.isEmpty {
+            DisclosureGroup(
+                isExpanded: Binding(
+                    get: { expanded.contains(node.id) },
+                    set: { isOpen in
+                        if isOpen { expanded.insert(node.id) }
+                        else { expanded.remove(node.id) }
+                    }
+                )
+            ) {
+                ForEach(children) { child in
+                    TreeNodeRecursiveView(node: child, expanded: $expanded, renderRow: renderRow)
+                }
+            } label: {
+                renderRow(node)
+            }
+        } else {
+            renderRow(node)
+        }
     }
 }

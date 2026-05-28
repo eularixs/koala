@@ -46,17 +46,75 @@ final class HTTPClientService: ObservableObject {
 
     private let session: URLSession
 
-    init(session: URLSession = .shared) {
-        self.session = session
+    /// URLSession that BYPASSES macOS system proxy by default. Prevents loop
+    /// where user has Koala system proxy enabled → Koala's own HTTP requests
+    /// route through localhost:port → infinite reflection.
+    private static let directSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.connectionProxyDictionary = [:]
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 120
+        return URLSession(configuration: config)
+    }()
+
+    init(session: URLSession? = nil) {
+        self.session = session ?? Self.directSession
     }
 
+    /// Existing call-site shape preserved. Delegates to `sendDetailed` and
+    /// drops the cookie metadata.
     func send(
         _ request: KoalaRequest,
         environment: KoalaEnvironment? = nil,
-        globalVariables: [KeyValuePair] = []
+        globalVariables: [KeyValuePair] = [],
+        cookieHeader: String? = nil,
+        vault: VaultService? = nil,
+        projectId: UUID? = nil
     ) async throws -> KoalaResponse {
-        let resolved = VariableResolver.resolveAll(in: request, environment: environment, globals: globalVariables)
-        let urlRequest = try buildURLRequest(from: resolved)
+        try await sendDetailed(
+            request,
+            environment: environment,
+            globalVariables: globalVariables,
+            cookieHeader: cookieHeader,
+            vault: vault,
+            projectId: projectId
+        ).response
+    }
+
+    /// Result of `sendDetailed`. `rawSetCookieHeaders` is a best-effort list of
+    /// per-`Set-Cookie` raw values pulled off the response — Foundation's
+    /// `HTTPURLResponse.allHeaderFields` merges duplicates, so we split them
+    /// back out here so callers (e.g. a cookie jar) can ingest each one.
+    struct SendResult {
+        let response: KoalaResponse
+        let rawSetCookieHeaders: [String]
+    }
+
+    /// Sends the request and returns both the `KoalaResponse` and any raw
+    /// `Set-Cookie` headers so callers can feed them into a cookie jar.
+    ///
+    /// `cookieHeader`, when non-nil and non-empty, is applied as the `Cookie:`
+    /// request header — but only if the user has not already set one manually
+    /// in `request.headers`.
+    func sendDetailed(
+        _ request: KoalaRequest,
+        environment: KoalaEnvironment? = nil,
+        globalVariables: [KeyValuePair] = [],
+        cookieHeader: String? = nil,
+        vault: VaultService? = nil,
+        projectId: UUID? = nil
+    ) async throws -> SendResult {
+        let resolved = VariableResolver.resolveAll(in: request, environment: environment, globals: globalVariables, vault: vault, projectId: projectId)
+        var urlRequest = try buildURLRequest(from: resolved)
+
+        if let cookieHeader, !cookieHeader.isEmpty {
+            let userSetCookie = resolved.headers.contains { h in
+                h.isEnabled && h.key.caseInsensitiveCompare("Cookie") == .orderedSame && !h.value.isEmpty
+            }
+            if !userSetCookie {
+                urlRequest.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+            }
+        }
 
         let delegate = MetricsDelegate()
         let delegateSession = URLSession(
@@ -89,7 +147,17 @@ final class HTTPClientService: ObservableObject {
             }
         )
 
-        return KoalaResponse(
+        // Pull Set-Cookie out separately. Foundation merges duplicates with ", ".
+        // We hand back the merged string — the cookie parser knows how to split
+        // on cookie boundaries while respecting commas inside `Expires=`.
+        let rawSetCookies: [String] = http.allHeaderFields.compactMap { k, v in
+            guard let key = k as? String,
+                  key.caseInsensitiveCompare("Set-Cookie") == .orderedSame,
+                  let value = v as? String else { return nil }
+            return value
+        }
+
+        let koalaResponse = KoalaResponse(
             statusCode: http.statusCode,
             statusText: HTTPURLResponse.localizedString(forStatusCode: http.statusCode),
             headers: headers,
@@ -98,6 +166,8 @@ final class HTTPClientService: ObservableObject {
             sizeBytes: data.count,
             timeline: delegate.timeline
         )
+
+        return SendResult(response: koalaResponse, rawSetCookieHeaders: rawSetCookies)
     }
 
     func curlCommand(

@@ -30,16 +30,20 @@ enum HTTPMethod: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// Extends HTTPMethod to support arbitrary custom verbs (e.g. "PURGE", "COPY").
-/// Use `.standard` for the common cases and `.custom` when the verb is not in the enum.
+/// Extends HTTPMethod to support arbitrary custom verbs (e.g. "PURGE", "COPY"),
+/// as well as non-REST streaming connections (WebSocket, Server-Sent Events).
 enum HTTPMethodValue: Codable, Hashable {
     case standard(HTTPMethod)
     case custom(String)
+    case websocket
+    case sse
 
     var rawValue: String {
         switch self {
         case .standard(let m): return m.rawValue
         case .custom(let s):   return s.uppercased()
+        case .websocket:       return "WS"
+        case .sse:             return "SSE"
         }
     }
 
@@ -49,6 +53,17 @@ enum HTTPMethodValue: Codable, Hashable {
         switch self {
         case .standard(let m): return m.color
         case .custom:          return .secondary
+        case .websocket:       return .cyan
+        case .sse:             return Color(red: 0.6, green: 0.3, blue: 0.85)
+        }
+    }
+
+    /// True when this method represents a long-lived streaming connection
+    /// (WebSocket / SSE) rather than a one-shot REST request.
+    var isStreaming: Bool {
+        switch self {
+        case .websocket, .sse: return true
+        default:               return false
         }
     }
 
@@ -57,15 +72,35 @@ enum HTTPMethodValue: Codable, Hashable {
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let raw = try container.decode(String.self)
-        if let method = HTTPMethod(rawValue: raw.uppercased()) {
-            self = .standard(method)
-        } else {
-            self = .custom(raw)
+        let upper = raw.uppercased()
+        switch upper {
+        case "WS", "WEBSOCKET":
+            self = .websocket
+        case "SSE":
+            self = .sse
+        default:
+            if let method = HTTPMethod(rawValue: upper) {
+                self = .standard(method)
+            } else {
+                self = .custom(raw)
+            }
         }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
+    }
+
+    /// Convenience factory for building from a plain method string (e.g. from proxy captures).
+    static func from(string: String) -> HTTPMethodValue {
+        let upper = string.uppercased()
+        switch upper {
+        case "WS", "WEBSOCKET": return .websocket
+        case "SSE":             return .sse
+        default:
+            if let m = HTTPMethod(rawValue: upper) { return .standard(m) }
+            return .custom(string)
+        }
     }
 }

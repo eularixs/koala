@@ -148,25 +148,31 @@ struct WelcomeWindowView: View {
     // MARK: - Sidebar
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Spacer().frame(height: 56)
+        VStack(alignment: .leading, spacing: 0) {
+            Spacer()
 
-            VStack(spacing: 8) {
-                Image(systemName: "circle.hexagongrid.fill")
-                    .font(.system(size: 44))
-                    .foregroundStyle(.tint)
+            VStack(spacing: 12) {
+                Image("KoalaLogo")
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 96, height: 96)
                 Text("Koala")
-                    .font(.system(.title2, design: .rounded).weight(.semibold))
+                    .font(.system(.title, design: .rounded).weight(.semibold))
+                Text("Native API workspace for macOS")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
 
             Spacer()
 
-            VStack(spacing: 8) {
+            VStack(spacing: 10) {
                 Button {
                     showCreateSheet = true
                 } label: {
-                    Label("Create Project", systemImage: "plus.circle.fill")
+                    Label("Create Project", systemImage: "plus")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -191,18 +197,22 @@ struct WelcomeWindowView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
-
-                Button {
-                    openSettings()
-                } label: {
-                    Label("Settings", systemImage: "gear")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
             }
 
-            Spacer().frame(height: 16)
+            Divider()
+                .padding(.vertical, 16)
+
+            Button {
+                openSettings()
+            } label: {
+                Label("Settings…", systemImage: "gearshape")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+
+            Spacer().frame(height: 18)
         }
         .padding(.horizontal, 20)
         .frame(maxHeight: .infinity)

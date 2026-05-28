@@ -14,6 +14,7 @@ struct CodeTextView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
+        scrollView.findBarPosition = .aboveContent
 
         let textView = AutoPairTextView()
         textView.delegate = context.coordinator
@@ -23,6 +24,8 @@ struct CodeTextView: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         textView.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         textView.textColor = .textColor
         textView.backgroundColor = .textBackgroundColor
@@ -68,6 +71,8 @@ private final class AutoPairTextView: NSTextView {
         "{": "}", "[": "]", "(": ")", "\"": "\""
     ]
     private let closingChars: Set<Character> = ["}", "]", ")", "\""]
+
+    override var acceptsFirstResponder: Bool { true }
 
     override func insertText(_ string: Any, replacementRange: NSRange) {
         guard let str = string as? String, str.count == 1,

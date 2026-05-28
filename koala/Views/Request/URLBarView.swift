@@ -18,6 +18,7 @@ struct URLBarView: View {
                     .frame(maxWidth: .infinity)
                     .onChange(of: request.url) { _, newValue in
                         autoParseCurlIfPasted(newValue)
+                        autoDetectStreamingProtocol(newValue)
                     }
 
                 sendButton
@@ -114,23 +115,52 @@ struct URLBarView: View {
         return "?"
     }
 
+    @ViewBuilder
     private var sendButton: some View {
-        Button(action: onSend) {
-            ZStack {
-                Text("Send")
-                    .opacity(isSending ? 0 : 1)
-                if isSending {
-                    ProgressView()
-                        .controlSize(.small)
-                        .progressViewStyle(.circular)
-                        .tint(.white)
+        if request.method.isStreaming {
+            // Streaming connections are driven from StreamingPanelView's own
+            // Connect/Disconnect button — hide the REST Send button so users
+            // aren't shown an inactive control.
+            EmptyView()
+        } else {
+            Button(action: onSend) {
+                ZStack {
+                    Text("Send")
+                        .opacity(isSending ? 0 : 1)
+                    if isSending {
+                        ProgressView()
+                            .controlSize(.small)
+                            .progressViewStyle(.circular)
+                            .tint(.white)
+                    }
                 }
+                .frame(width: 56, height: 16)
             }
-            .frame(width: 56, height: 16)
+            .buttonStyle(.borderedProminent)
+            .disabled(request.url.trimmingCharacters(in: .whitespaces).isEmpty || isSending)
+            .keyboardShortcut(.return, modifiers: .command)
         }
-        .buttonStyle(.borderedProminent)
-        .disabled(request.url.trimmingCharacters(in: .whitespaces).isEmpty || isSending)
-        .keyboardShortcut(.return, modifiers: .command)
+    }
+
+    /// Auto-switch `request.method` when the user types a streaming-protocol URL.
+    /// `ws://` or `wss://` → `.websocket`. `sse://` (custom convenience) → `.sse`.
+    /// We rewrite `sse://` → `https://` so the real request still uses HTTP.
+    private func autoDetectStreamingProtocol(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if trimmed.hasPrefix("ws://") || trimmed.hasPrefix("wss://") {
+            if request.method != .websocket {
+                request.method = .websocket
+            }
+        } else if trimmed.hasPrefix("sse://") {
+            // Rewrite scheme to https for the actual SSE GET.
+            let rest = String(raw.dropFirst("sse://".count))
+            request.url = "https://" + rest
+            request.method = .sse
+        } else if trimmed.hasPrefix("sses://") {
+            let rest = String(raw.dropFirst("sses://".count))
+            request.url = "https://" + rest
+            request.method = .sse
+        }
     }
 
     private func autoParseCurlIfPasted(_ value: String) {

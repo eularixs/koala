@@ -8,6 +8,8 @@ enum SidebarSection: Hashable, CaseIterable {
     case environments
     case mockServers
     case history
+    case recording
+    case automation
 
     var label: String {
         switch self {
@@ -15,6 +17,8 @@ enum SidebarSection: Hashable, CaseIterable {
         case .environments: return "Environments"
         case .mockServers:  return "Mock Servers"
         case .history:      return "History"
+        case .recording:    return "Recording"
+        case .automation:   return "Automation"
         }
     }
 
@@ -24,6 +28,8 @@ enum SidebarSection: Hashable, CaseIterable {
         case .environments: return "leaf"
         case .mockServers:  return "server.rack"
         case .history:      return "clock"
+        case .recording:    return "antenna.radiowaves.left.and.right"
+        case .automation:   return "clock.arrow.circlepath"
         }
     }
 }
@@ -62,6 +68,31 @@ final class AppState {
     /// Selection state for the mock server detail pane.
     var selectedMockServerId: UUID? = nil
 
+    // MARK: - Runner Settings slice (per request, per project)
+    private var runnerSettingsByProject: [UUID: [UUID: RunnerSettings]] = [:]
+
+    /// Per-request runner settings for the currently active project.
+    var runnerSettings: [UUID: RunnerSettings] {
+        get { runnerSettingsByProject[activeProjectId ?? UUID()] ?? [:] }
+        set {
+            guard let id = activeProjectId else { return }
+            runnerSettingsByProject[id] = newValue
+        }
+    }
+
+    func runnerSetting(for requestId: UUID) -> RunnerSettings? {
+        runnerSettings[requestId]
+    }
+
+    func setRunnerSettings(_ s: RunnerSettings, for requestId: UUID) {
+        guard let pid = activeProjectId else { return }
+        if runnerSettingsByProject[pid] == nil {
+            runnerSettingsByProject[pid] = [:]
+        }
+        runnerSettingsByProject[pid]![requestId] = s
+        try? persistence.saveRunnerSettings(runnerSettingsByProject[pid] ?? [:], forProject: pid)
+    }
+
     // MARK: Computed accessors (existing shape preserved)
     var collections: [KoalaCollection] {
         get { collectionsByProject[activeProjectId ?? UUID()] ?? [] }
@@ -89,10 +120,28 @@ final class AppState {
 
     // MARK: Selection State
     var selectedEnvironmentId: UUID? = nil
+    /// Env id currently being EDITED in the right-panel detail (separate from
+    /// the active env used in requests).
+    var environmentDetailId: UUID? = nil
     var selectedRequestId: UUID? = nil
     var selectedSidebarSection: SidebarSection = .collections
 
     private let persistence = PersistenceService()
+
+    // MARK: - Cookie purge hook
+    //
+    // The main agent wires this to `CookieJarService.purge(envId:)` at app
+    // startup. AppState intentionally does not own the cookie jar — cookies
+    // live in `CookieJarService`. Call sites that delete an environment
+    // invoke `purgeCookiesForDeletedEnv(_:)`; if no hook is wired, it's a
+    // no-op (cookies will simply remain orphaned on disk until cleared).
+    var onPurgeCookiesForEnv: ((UUID) -> Void)? = nil
+
+    /// Notify the cookie jar that an environment has been deleted so its
+    /// cookies can be purged from memory + disk.
+    func purgeCookiesForDeletedEnv(_ id: UUID) {
+        onPurgeCookiesForEnv?(id)
+    }
 
     var selectedEnvironment: KoalaEnvironment? {
         guard let id = selectedEnvironmentId else { return nil }
@@ -144,6 +193,19 @@ final class AppState {
             }
         }
         return false
+    }
+
+    // MARK: Recording → Project
+
+    /// Inserts `collections` directly into the specified project without switching the active project.
+    /// Called by `RecordingProxyService.saveAsProject`.
+    func insertCollections(_ collections: [KoalaCollection], forProject projectId: UUID) {
+        if collectionsByProject[projectId] == nil {
+            collectionsByProject[projectId] = []
+        }
+        collectionsByProject[projectId]!.append(contentsOf: collections)
+        try? persistence.saveCollections(collectionsByProject[projectId]!, forProject: projectId)
+        saveManifest()
     }
 
     // MARK: Collection CRUD
@@ -399,6 +461,7 @@ final class AppState {
         environmentsByProject.removeValue(forKey: id)
         globalsByProject.removeValue(forKey: id)
         mockServersByProject.removeValue(forKey: id)
+        runnerSettingsByProject.removeValue(forKey: id)
         projects.removeAll(where: { $0.id == id })
         if activeProjectId == id {
             activeProjectId = projects.first?.id
@@ -412,7 +475,23 @@ final class AppState {
             loadProjectSlices(id)
         }
         activeProjectId = id
+        autoSelectDefaultEnvironment()
         saveManifest()
+    }
+
+    /// If no env selected (or selection points to an env from another project),
+    /// pick the env named "default" (case insensitive) for the active project.
+    private func autoSelectDefaultEnvironment() {
+        let projectEnvs = environments
+        let currentValid = selectedEnvironmentId.flatMap { id in
+            projectEnvs.first(where: { $0.id == id })
+        } != nil
+        if currentValid { return }
+        if let def = projectEnvs.first(where: { $0.name.lowercased() == "default" }) {
+            selectedEnvironmentId = def.id
+        } else {
+            selectedEnvironmentId = nil
+        }
     }
 
     // MARK: Persistence
@@ -436,6 +515,7 @@ final class AppState {
 
         if let id = activeProjectId {
             loadProjectSlices(id)
+            autoSelectDefaultEnvironment()
         }
     }
 
@@ -533,6 +613,7 @@ final class AppState {
             try? persistence.saveMockServers(loadedServers, forProject: id)
         }
         mockServersByProject[id] = loadedServers
+        runnerSettingsByProject[id] = (try? persistence.loadRunnerSettings(forProject: id)) ?? [:]
         // Sync BASE_URL env to the canonical URL of the first server (if any).
         if let first = loadedServers.first, !first.deploymentURL.isEmpty {
             updateMockBaseURL(forProject: id, url: first.deploymentURL)
@@ -583,13 +664,39 @@ final class AppState {
     // MARK: - Collaboration Bundle
 
     /// Builds a Codable snapshot of all collaborative data for a project.
+    ///
+    /// Vault-flagged variables (`isVault == true`) have their `value` cleared
+    /// before bundling. The model-level encode also strips them, but we wipe
+    /// in-memory copies here as defence-in-depth so any future serialization
+    /// path (e.g. logging the bundle) cannot leak secrets.
     func collaborationBundle(forProject id: UUID) -> CollaborationBundle {
-        CollaborationBundle(
+        var envs = environmentsByProject[id] ?? []
+        for ei in envs.indices {
+            for vi in envs[ei].variables.indices where envs[ei].variables[vi].isVault {
+                envs[ei].variables[vi].value = ""
+            }
+        }
+        var globals = globalsByProject[id] ?? []
+        for gi in globals.indices where globals[gi].isVault {
+            globals[gi].value = ""
+        }
+        return CollaborationBundle(
             collections: collectionsByProject[id] ?? [],
-            environments: environmentsByProject[id] ?? [],
-            globalVariables: globalsByProject[id] ?? [],
+            environments: envs,
+            globalVariables: globals,
             schemaVersion: CollaborationBundle.currentSchemaVersion
         )
+    }
+
+    // MARK: - Vault
+
+    /// Optional injection point — wired in `StateContainer.init`. Kept optional
+    /// so `AppState` can be unit-tested without Keychain access.
+    var vaultService: VaultService? = nil
+
+    /// Convenience read-through to `VaultService`.
+    func vaultValue(name: String, projectId: UUID) -> String? {
+        vaultService?.get(name, projectId: projectId)
     }
 
     /// Replaces local collections/environments/globals for a project and persists.

@@ -120,6 +120,37 @@ jobs:
           echo "dmg_name=$DMG_NAME" >> "$GITHUB_OUTPUT"
           echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
 
+      # ---------------------------------------------------------------------------
+      # SPARKLE SIGNING STUB — activate once EdDSA keys are generated.
+      #
+      # Pre-requisites:
+      #   1. Generate keypair:  ./Sparkle.framework/Versions/B/Resources/generate_keys
+      #      (or via Homebrew: sparkle generate_keys)
+      #   2. Add public key to Info.plist SUPublicEDKey (already placeholder'd in pbxproj).
+      #   3. Store private key as GitHub secret: SPARKLE_PRIVATE_KEY
+      #
+      # Uncomment the step below after completing the above:
+      #
+      # - name: Sign DMG with Sparkle EdDSA
+      #   env:
+      #     SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+      #     DMG_NAME: ${{ steps.package.outputs.dmg_name }}
+      #   run: |
+      #     # Write private key to a temp file (Sparkle sign_update reads it from disk)
+      #     echo "$SPARKLE_PRIVATE_KEY" | base64 --decode > /tmp/sparkle_private.pem
+      #     chmod 600 /tmp/sparkle_private.pem
+      #
+      #     # Compute EdDSA signature
+      #     SIG=$(./build/SourcePackages/checkouts/Sparkle/bin/sign_update \
+      #             "artifacts/$DMG_NAME" \
+      #             --account /tmp/sparkle_private.pem)
+      #     echo "sparkle_sig=$SIG" >> "$GITHUB_OUTPUT"
+      #     rm -f /tmp/sparkle_private.pem
+      #
+      #     # Update the appcast entry in web/public/appcast.xml, then commit
+      #     # to the web repo or upload as a release artifact alongside the DMG.
+      # ---------------------------------------------------------------------------
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

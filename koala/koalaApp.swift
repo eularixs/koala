@@ -1,4 +1,5 @@
 import SwiftUI
+import Sparkle
 
 // MARK: - FocusedValues
 
@@ -18,6 +19,18 @@ struct koalaApp: App {
     @State private var container = StateContainer()
     @FocusedValue(\.requestSaveAction) private var saveAction
 
+    // MARK: Sparkle auto-update
+    private let updaterDelegate = SparkleUpdaterDelegate()
+    private let updaterController: SPUStandardUpdaterController
+
+    init() {
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: updaterDelegate,
+            userDriverDelegate: nil
+        )
+    }
+
     var body: some Scene {
         // MARK: Main Window
         WindowGroup {
@@ -29,11 +42,22 @@ struct koalaApp: App {
                 .environment(container.vercelService)
                 .environment(container.mockServerService)
                 .environment(container.collaborationService)
+                .environment(container.cookieJar)
+                .environment(\.vaultService, container.vaultService)
+                .environment(\.vaultProjectId, container.appState.activeProjectId)
+                .environment(container.licenseService)
+                .environment(container.automationScheduler)
+                .environment(container.recordingProxy)
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .windowResizability(.contentSize)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates\u{2026}") {
+                    updaterController.updater.checkForUpdates()
+                }
+            }
             CommandGroup(replacing: .saveItem) {
                 Button("Save Request") {
                     saveAction?()
@@ -54,6 +78,12 @@ struct koalaApp: App {
                 .environment(container.vercelService)
                 .environment(container.mockServerService)
                 .environment(container.collaborationService)
+                .environment(container.cookieJar)
+                .environment(\.vaultService, container.vaultService)
+                .environment(\.vaultProjectId, container.appState.activeProjectId)
+                .environment(container.licenseService)
+                .environment(container.automationScheduler)
+                .environment(container.recordingProxy)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
@@ -64,6 +94,7 @@ struct koalaApp: App {
             SettingsView()
                 .environment(container.appState)
                 .environment(container.vercelService)
+                .environment(container.licenseService)
         }
     }
 }

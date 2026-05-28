@@ -7,7 +7,20 @@ enum RequestEditorTab: String, CaseIterable, Identifiable {
     case headers = "Headers"
     case body    = "Body"
     case auth    = "Auth"
+    case scripts = "Scripts"
     case mock    = "Mock"
+    case notes   = "Notes"
+
+    var id: String { rawValue }
+}
+
+// MARK: - StreamingConfigTab
+//
+// Reduced tab strip used in streaming mode — WS/SSE only need URL + headers,
+// optionally query params. Body/auth/scripts/mock are hidden.
+enum StreamingConfigTab: String, CaseIterable, Identifiable {
+    case headers = "Headers"
+    case params  = "Params"
 
     var id: String { rawValue }
 }
@@ -22,15 +35,28 @@ struct RequestEditorView: View {
     @State private var isResponseHidden: Bool = false
     @State private var showSaveSheet: Bool = false
 
+    // Streaming connections — one of each per tab instance. Only the
+    // service matching the current method is exposed via StreamingPanelView.
+    @State private var webSocketService = WebSocketService()
+    @State private var sseService = SSEService()
+    @State private var streamingConfigTab: StreamingConfigTab = .headers
+
+    @State private var isEditingName: Bool = false
+    @State private var nameDraft: String = ""
+
     @Environment(AppState.self) private var appState
     @Environment(HistoryService.self) private var historyService
+    @Environment(CookieJarService.self) private var cookieJar
+    @Environment(\.vaultService) private var vaultService
 
     private var environment: KoalaEnvironment? { appState.selectedEnvironment }
     private var globalVariables: [KeyValuePair] { appState.globalVariables }
 
     var body: some View {
         Group {
-            if viewModel.response == nil {
+            if tab.request.method.isStreaming {
+                streamingPanel
+            } else if viewModel.response == nil {
                 requestPanel
             } else if isResponseHidden {
                 VStack(spacing: 0) {
@@ -48,6 +74,7 @@ struct RequestEditorView: View {
                 }
             }
         }
+        .onAppear { wireScriptCallbacks() }
         .onChange(of: viewModel.response) { _, newResponse in
             tab.response = newResponse
             if let response = newResponse {
@@ -78,10 +105,132 @@ struct RequestEditorView: View {
         }
     }
 
+    // MARK: - Streaming Panel (WebSocket / SSE)
+
+    private var streamingPanel: some View {
+        VStack(spacing: 0) {
+            requestNameBar
+
+            URLBarView(
+                request: $tab.request,
+                isSending: false,
+                onSend: {}
+            )
+
+            Divider()
+
+            streamingConfigBar
+
+            Divider()
+
+            streamingConfigContent
+                .frame(maxWidth: .infinity, idealHeight: 120, maxHeight: 180)
+
+            Divider()
+
+            // Pick the service that matches the current method.
+            if tab.request.method == .websocket {
+                StreamingPanelView(
+                    request: $tab.request,
+                    mode: .webSocket,
+                    webSocket: webSocketService
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                StreamingPanelView(
+                    request: $tab.request,
+                    mode: .sse,
+                    sse: sseService
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onDisappear {
+            webSocketService.disconnect()
+            sseService.disconnect()
+        }
+    }
+
+    private var streamingConfigBar: some View {
+        HStack {
+            Picker("Config", selection: $streamingConfigTab) {
+                ForEach(StreamingConfigTab.allCases) { t in
+                    Text(t.rawValue).tag(t)
+                }
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private var streamingConfigContent: some View {
+        switch streamingConfigTab {
+        case .headers:
+            ScrollView {
+                HeadersEditorView(request: $tab.request)
+                    .frame(maxWidth: .infinity, alignment: .top)
+            }
+        case .params:
+            ScrollView {
+                ParamsEditorView(request: $tab.request)
+                    .frame(maxWidth: .infinity, alignment: .top)
+            }
+        }
+    }
+
+    // MARK: - Request Name Bar
+    //
+    // Sits above the URL field. Double-click → inline rename TextField.
+    // Enter or focus-loss commits the rename via `tab.request.name`.
+
+    @ViewBuilder
+    private var requestNameBar: some View {
+        Group {
+            if isEditingName {
+                TextField("Request name", text: $nameDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.body.weight(.medium))
+                    .onSubmit { commitRequestName() }
+                    .onExitCommand { isEditingName = false }
+            } else {
+                HStack(spacing: 0) {
+                    Text(tab.request.name.isEmpty ? "Untitled Request" : tab.request.name)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(tab.request.name.isEmpty ? .secondary : .primary)
+                        .lineLimit(1)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    nameDraft = tab.request.name
+                    isEditingName = true
+                }
+                .help("Double-click to rename")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+    }
+
+    private func commitRequestName() {
+        let trimmed = nameDraft.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty {
+            tab.request.name = trimmed
+        }
+        isEditingName = false
+    }
+
     // MARK: - Request Panel
 
     private var requestPanel: some View {
         VStack(spacing: 0) {
+            requestNameBar
+
             URLBarView(
                 request: $tab.request,
                 isSending: viewModel.isSending,
@@ -182,6 +331,9 @@ struct RequestEditorView: View {
             }
         case .body:
             BodyEditorView(request: $tab.request)
+        case .scripts:
+            ScriptsEditorView(request: $tab.request)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .auth:
             ScrollView {
                 AuthEditorView(request: $tab.request)
@@ -192,6 +344,11 @@ struct RequestEditorView: View {
                 MockSettingsEditorView(request: $tab.request)
                     .frame(maxWidth: .infinity, alignment: .top)
             }
+        case .notes:
+            ScrollView {
+                NotesEditorView(request: $tab.request)
+                    .frame(maxWidth: .infinity, alignment: .top)
+            }
         }
     }
 
@@ -200,16 +357,43 @@ struct RequestEditorView: View {
     private var responsePanel: some View {
         ResponseView(
             response: viewModel.response,
-            curlCommand: viewModel.curlCommand
+            curlCommand: viewModel.curlCommand,
+            request: tab.request,
+            environment: environment,
+            globalVariables: globalVariables
         )
     }
 
     // MARK: - Actions
 
     private func sendRequest() {
+        viewModel.cookieJar = cookieJar
+        viewModel.vaultService = vaultService
+        viewModel.projectId = appState.activeProjectId
         viewModel.generateCurlCommand(tab.request, environment: environment, globalVariables: globalVariables)
+        let envId = appState.selectedEnvironmentId
         Task {
-            await viewModel.send(tab.request, environment: environment, globalVariables: globalVariables)
+            await viewModel.send(tab.request, environment: environment, globalVariables: globalVariables, envId: envId)
+        }
+    }
+
+    /// Wire script-mutation callbacks so pre-request scripts that touch
+    /// `koala.env` / `koala.globals` / `koala.request` persist their changes.
+    private func wireScriptCallbacks() {
+        viewModel.onEnvMutated = { mutated in
+            var all = appState.environments
+            if let idx = all.firstIndex(where: { $0.id == mutated.id }) {
+                all[idx] = mutated
+                appState.environments = all
+                appState.saveActiveProject()
+            }
+        }
+        viewModel.onGlobalsMutated = { mutated in
+            appState.globalVariables = mutated
+            appState.saveActiveProject()
+        }
+        viewModel.onRequestMutated = { mutated in
+            tab.request = mutated
         }
     }
 

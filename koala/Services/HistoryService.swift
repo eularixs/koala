@@ -6,20 +6,11 @@ import Observation
 final class HistoryService {
     private static let maxEntries = 100
 
+    /// In-memory cache for UI binding — loaded from SQLite on project switch.
     var entries: [HistoryEntry] = []
     private var activeProjectId: UUID? = nil
 
-    private let persistence = PersistenceService()
-
-    private var encoder: JSONEncoder {
-        let e = JSONEncoder()
-        #if DEBUG
-        e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        #else
-        e.outputFormatting = .sortedKeys
-        #endif
-        return e
-    }
+    private let repo = HistoryRepository()
 
     // MARK: - Per-project history
 
@@ -29,40 +20,37 @@ final class HistoryService {
             entries = []
             return
         }
-        entries = (try? persistence.loadHistory(forProject: id)) ?? []
+        Task {
+            await loadFromDB(projectId: id)
+        }
     }
 
     func record(request: KoalaRequest, response: KoalaResponse?, projectId: UUID) {
-        let entry = HistoryEntry(projectId: projectId, requestSnapshot: request, responseSnapshot: response)
+        let entry = HistoryEntry(
+            projectId: projectId,
+            requestSnapshot: request,
+            responseSnapshot: response
+        )
         entries.insert(entry, at: 0)
         if entries.count > Self.maxEntries {
             entries = Array(entries.prefix(Self.maxEntries))
         }
-        let snapshot = entries
-        let pid = projectId
-        let ps = persistence
-        let enc = encoder
         Task {
-            await persistAsync(snapshot, projectId: pid, persistence: ps, encoder: enc)
+            try? await repo.append(entry: entry)
         }
     }
 
     func clear(projectId: UUID) {
         entries = []
-        let ps = persistence
-        let enc = encoder
         Task {
-            await persistAsync([], projectId: projectId, persistence: ps, encoder: enc)
+            try? await repo.purge(projectId: projectId)
         }
     }
 
     func remove(_ id: UUID, projectId: UUID) {
         entries.removeAll(where: { $0.id == id })
-        let snapshot = entries
-        let ps = persistence
-        let enc = encoder
         Task {
-            await persistAsync(snapshot, projectId: projectId, persistence: ps, encoder: enc)
+            try? await repo.delete(id: id)
         }
     }
 
@@ -86,14 +74,49 @@ final class HistoryService {
 
     // MARK: - Private
 
-    private func persistAsync(
-        _ snapshot: [HistoryEntry],
-        projectId: UUID,
-        persistence: PersistenceService,
-        encoder: JSONEncoder
-    ) async {
-        await Task.detached(priority: .background) {
-            try? persistence.saveHistory(snapshot, forProject: projectId)
-        }.value
+    private func loadFromDB(projectId: UUID) async {
+        let rows = (try? await repo.recent(projectId: projectId, limit: Self.maxEntries)) ?? []
+        let loaded = rows.compactMap { HistoryEntry(from: $0) }
+        await MainActor.run { self.entries = loaded }
     }
+}
+
+// MARK: - HistoryEntry init from HistoryRow
+
+extension HistoryEntry {
+    init?(from row: HistoryRow) {
+        guard let projectId = UUID(uuidString: row.projectId) else { return nil }
+        let method = HTTPMethodValue.from(string: row.method)
+        let request = KoalaRequest(
+            name: row.url,
+            method: method,
+            url: row.url
+        )
+        var response: KoalaResponse? = nil
+        if let statusCode = row.statusCode {
+            let bodyData = KoalaDatabase.loadBody(inline: row.responseBody, path: row.responseBodyPath) ?? Data()
+            let headers = decodeHeadersJson(row.responseHeadersJson)
+            response = KoalaResponse(
+                statusCode: statusCode,
+                statusText: HTTPURLResponse.localizedString(forStatusCode: statusCode),
+                headers: headers,
+                body: bodyData,
+                durationMs: row.durationMs ?? 0,
+                sizeBytes: bodyData.count,
+                timeline: .zero
+            )
+        }
+        self.init(
+            id: UUID(uuidString: row.id) ?? UUID(),
+            projectId: projectId,
+            requestSnapshot: request,
+            responseSnapshot: response,
+            sentAt: Date(timeIntervalSince1970: TimeInterval(row.createdAt))
+        )
+    }
+}
+
+private func decodeHeadersJson(_ json: String?) -> [String: String] {
+    guard let json, let data = json.data(using: .utf8) else { return [:] }
+    return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
 }

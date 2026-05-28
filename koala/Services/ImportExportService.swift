@@ -7,7 +7,7 @@ enum ImportFormat {
 }
 
 enum ExportFormat {
-    case postman, openapi, markdown, koalaNative
+    case postman, openapi, markdown, koalaNative, har
 }
 
 // MARK: - ImportExportService
@@ -56,6 +56,9 @@ final class ImportExportService {
         case .koalaNative:
             let data = try KoalaNativeExporter.export(collection)
             try data.write(to: url)
+        case .har:
+            let data = try HARExporter.export(collection)
+            try data.write(to: url)
         }
     }
 
@@ -70,6 +73,8 @@ final class ImportExportService {
             return (nil, try MarkdownExporter.export(collection), "md")
         case .koalaNative:
             return (try KoalaNativeExporter.export(collection), nil, "json")
+        case .har:
+            return (try HARExporter.export(collection), nil, "har")
         }
     }
 

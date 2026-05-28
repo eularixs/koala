@@ -10,10 +10,14 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
             VercelSettingsTab()
                 .tabItem { Label("Vercel", systemImage: "cloud") }
+            StorageSettingsTab()
+                .tabItem { Label("Storage", systemImage: "internaldrive") }
+            LicenseTab()
+                .tabItem { Label("License", systemImage: "key.fill") }
             AboutSettingsTab()
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 520, height: 360)
+        .frame(width: 520, height: 420)
     }
 }
 
@@ -39,11 +43,13 @@ private struct GeneralSettingsTab: View {
                     }
                 }
                 LabeledContent("Font Size") {
-                    Stepper(value: $fontSize, in: 10...22, step: 1) {
+                    HStack(spacing: 6) {
                         Text("\(Int(fontSize)) pt")
                             .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                        Stepper("", value: $fontSize, in: 10...22, step: 1)
+                            .labelsHidden()
                     }
-                    .labelsHidden()
                 }
                 Picker("Tab Size", selection: $tabSize) {
                     Text("2 spaces").tag(2)
@@ -68,12 +74,8 @@ private struct VercelSettingsTab: View {
     @Environment(VercelService.self) private var vercelService
 
     @State private var personalToken: String = ""
-    @State private var clientId: String = ""
-    @State private var clientSecret: String = ""
-    @State private var scopes: String = "read:user read:project create:project delete:project read:deployment create:deployment"
     @State private var saveError: String? = nil
     @State private var savedFlash: Bool = false
-    @State private var showAdvanced: Bool = false
 
     var body: some View {
         Form {
@@ -83,7 +85,7 @@ private struct VercelSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("How to get a token (recommended)") {
+            Section("How to get a token") {
                 stepRow(1, "Open Vercel tokens page:") {
                     linkButton("vercel.com/account/tokens", url: "https://vercel.com/account/tokens")
                 }
@@ -101,43 +103,11 @@ private struct VercelSettingsTab: View {
             }
 
             Section {
-                DisclosureGroup(isExpanded: $showAdvanced) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Only use if distributing Koala to others under your OAuth app. Most users should use the token above instead.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        Text("Redirect URL to register on Vercel integration:")
-                            .font(.caption)
-                        Text("koala://oauth/callback")
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
-
-                        TextField("Client ID", text: $clientId, prompt: Text("vercel_oauth_..."))
-                            .font(.system(.body, design: .monospaced))
-                        SecureField("Client Secret", text: $clientSecret, prompt: Text("secret"))
-                            .font(.system(.body, design: .monospaced))
-                        TextField("Scopes", text: $scopes)
-                            .font(.system(.caption, design: .monospaced))
-                    }
-                    .padding(.top, 6)
-                } label: {
-                    Label("Advanced: OAuth Integration", systemImage: "gearshape.2")
-                        .font(.caption)
-                }
-            }
-
-            Section {
                 HStack {
                     if vercelService.isAuthenticated {
                         Button("Disconnect Vercel", role: .destructive) {
                             try? vercelService.logout()
                             personalToken = ""
-                            clientId = ""
-                            clientSecret = ""
                         }
                     }
                     Spacer()
@@ -192,18 +162,11 @@ private struct VercelSettingsTab: View {
     }
 
     private func load() {
-        clientId = UserDefaults.standard.string(forKey: "VercelClientId") ?? ""
-        scopes = UserDefaults.standard.string(forKey: "VercelOAuthScopes") ?? scopes
-        clientSecret = (try? KeychainService().string(for: "vercel.oauth.clientSecret")) ?? ""
         personalToken = vercelService.personalAccessToken ?? ""
-        if !clientId.isEmpty || !clientSecret.isEmpty { showAdvanced = true }
     }
 
     private func save() {
         do {
-            UserDefaults.standard.set(clientId, forKey: "VercelClientId")
-            UserDefaults.standard.set(scopes, forKey: "VercelOAuthScopes")
-            try KeychainService().set(clientSecret, for: "vercel.oauth.clientSecret")
             try vercelService.setPersonalAccessToken(personalToken)
             savedFlash = true
             saveError = nil
@@ -214,14 +177,178 @@ private struct VercelSettingsTab: View {
     }
 }
 
+// MARK: - Storage
+
+private struct StorageSettingsTab: View {
+    @Environment(AppState.self) private var appState
+    @State private var diskUsage: DiskUsage = .init()
+    @State private var pruneDays: Double = 30
+    @State private var showPruneConfirm = false
+    @State private var clearHistoryDone = false
+    @State private var clearRecordingsDone = false
+
+    var body: some View {
+        Form {
+            Section("Disk Usage") {
+                usageRow("History (SQLite)", bytes: diskUsage.sqliteBytes)
+                usageRow("Blobs", bytes: diskUsage.blobsBytes)
+                usageRow("JSON Data", bytes: diskUsage.jsonBytes)
+                usageRow("Total", bytes: diskUsage.total)
+                    .fontWeight(.semibold)
+            }
+
+            Section("Actions") {
+                HStack {
+                    Button("Clear History") { clearHistory() }
+                        .foregroundStyle(.red)
+                    if clearHistoryDone { doneLabel }
+                    Spacer()
+                }
+                HStack {
+                    Button("Clear Recordings") { clearRecordings() }
+                        .foregroundStyle(.red)
+                    if clearRecordingsDone { doneLabel }
+                    Spacer()
+                }
+                Button("Show Storage Folder") { openStorageFolder() }
+            }
+
+            Section {
+                LabeledContent("Auto-prune history older than") {
+                    HStack(spacing: 6) {
+                        Text("\(Int(pruneDays)) days")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                        Slider(value: $pruneDays, in: 7...365, step: 1)
+                            .frame(width: 160)
+                    }
+                }
+                Button("Prune Now") { showPruneConfirm = true }
+                    .foregroundStyle(.orange)
+            } header: {
+                Text("Auto-prune")
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { refreshUsage() }
+        .confirmationDialog(
+            "Prune history entries older than \(Int(pruneDays)) days?",
+            isPresented: $showPruneConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Prune", role: .destructive) { pruneHistory() }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private var doneLabel: some View {
+        Label("Done", systemImage: "checkmark.circle")
+            .font(.caption)
+            .foregroundStyle(.green)
+    }
+
+    private func usageRow(_ label: String, bytes: Int) -> some View {
+        LabeledContent(label) {
+            Text(formatBytes(bytes))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func clearHistory() {
+        guard let pid = appState.activeProjectId else { return }
+        Task {
+            try? await HistoryRepository().purge(projectId: pid)
+            refreshUsage()
+            await MainActor.run { clearHistoryDone = true }
+        }
+    }
+
+    private func clearRecordings() {
+        Task {
+            let repo = RecordingRepository()
+            let sessions = (try? await repo.allSessions()) ?? []
+            for s in sessions { try? await repo.deleteSession(id: s.id) }
+            refreshUsage()
+            await MainActor.run { clearRecordingsDone = true }
+        }
+    }
+
+    private func pruneHistory() {
+        guard let pid = appState.activeProjectId else { return }
+        let cutoff = Date().addingTimeInterval(-pruneDays * 86400)
+        Task {
+            try? await HistoryRepository().prune(projectId: pid, olderThan: cutoff)
+            refreshUsage()
+        }
+    }
+
+    private func openStorageFolder() {
+        guard let url = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first?.appendingPathComponent("Koala") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func refreshUsage() {
+        Task.detached {
+            let usage = DiskUsage.calculate()
+            await MainActor.run { diskUsage = usage }
+        }
+    }
+
+    private func formatBytes(_ bytes: Int) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(bytes))
+    }
+}
+
+// MARK: - DiskUsage
+
+private struct DiskUsage {
+    var sqliteBytes: Int = 0
+    var blobsBytes: Int = 0
+    var jsonBytes: Int = 0
+    var total: Int { sqliteBytes + blobsBytes + jsonBytes }
+
+    static func calculate() -> DiskUsage {
+        guard let base = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first?.appendingPathComponent("Koala") else { return .init() }
+
+        return DiskUsage(
+            sqliteBytes: dirSize(base, filter: { $0.hasSuffix(".sqlite") || $0.hasSuffix(".sqlite-wal") || $0.hasSuffix(".sqlite-shm") }),
+            blobsBytes: dirSize(base.appendingPathComponent("blobs"), filter: { _ in true }),
+            jsonBytes: dirSize(base, filter: { $0.hasSuffix(".json") })
+        )
+    }
+
+    private static func dirSize(_ url: URL, filter: (String) -> Bool) -> Int {
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+        var total = 0
+        for case let fileURL as URL in enumerator {
+            guard filter(fileURL.lastPathComponent) else { continue }
+            total += (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        }
+        return total
+    }
+}
+
 // MARK: - About
 
 private struct AboutSettingsTab: View {
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: "circle.hexagongrid.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(.tint)
+            Image("KoalaLogo")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 80, height: 80)
             Text("Koala")
                 .font(.title2.weight(.semibold))
             Text("Native macOS API client")

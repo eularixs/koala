@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct CodeEditorView: View {
     @Binding var text: String
@@ -33,12 +34,62 @@ struct CodeEditorView: View {
 
             Spacer()
 
+            findButton
+            findNextButton
+            findPreviousButton
+
             if language.lowercased() == "json" {
                 formatButton
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+    }
+
+    private var findButton: some View {
+        Button {
+            performFindAction(.showFindInterface)
+        } label: {
+            Image(systemName: "magnifyingglass")
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .foregroundStyle(Color.accentColor)
+        .keyboardShortcut("f", modifiers: .command)
+        .help("Find (Cmd+F)")
+    }
+
+    private var findNextButton: some View {
+        Button {
+            performFindAction(.nextMatch)
+        } label: {
+            Image(systemName: "chevron.down")
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .foregroundStyle(Color.accentColor)
+        .keyboardShortcut("g", modifiers: .command)
+        .help("Find Next (Cmd+G)")
+    }
+
+    private var findPreviousButton: some View {
+        Button {
+            performFindAction(.previousMatch)
+        } label: {
+            Image(systemName: "chevron.up")
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .foregroundStyle(Color.accentColor)
+        .keyboardShortcut("g", modifiers: [.command, .shift])
+        .help("Find Previous (Cmd+Shift+G)")
+    }
+
+    private func performFindAction(_ action: NSTextFinder.Action) {
+        let tag = action.rawValue
+        let menuItem = NSMenuItem(title: "", action: #selector(NSTextView.performFindPanelAction(_:)), keyEquivalent: "")
+        menuItem.tag = tag
+        NSApp.sendAction(#selector(NSTextView.performFindPanelAction(_:)), to: nil, from: menuItem)
     }
 
     private var formatButton: some View {

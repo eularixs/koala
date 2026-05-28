@@ -10,12 +10,14 @@ struct EnvironmentListView: View {
         case environment(UUID)
         case newEnvironment
         case globalVariables
+        case vault
 
         var id: String {
             switch self {
             case .environment(let id): return id.uuidString
             case .newEnvironment:      return "new-env"
             case .globalVariables:     return "globals"
+            case .vault:               return "vault"
             }
         }
     }
@@ -43,11 +45,18 @@ struct EnvironmentListView: View {
     }
 
     private var sectionHeader: some View {
-        HStack {
+        HStack(spacing: 10) {
             Text("Environments")
                 .font(.headline)
                 .padding(.leading, 12)
             Spacer()
+            Button {
+                sheetTarget = .vault
+            } label: {
+                Image(systemName: "lock.shield")
+            }
+            .buttonStyle(.plain)
+            .help("Vault — Keychain-only secrets, not synced")
             Button {
                 sheetTarget = .newEnvironment
             } label: {
@@ -104,8 +113,7 @@ struct EnvironmentListView: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    appState.selectedEnvironmentId = env.id
-                    sheetTarget = .environment(env.id)
+                    appState.environmentDetailId = env.id
                 }
                 .onTapGesture(count: 2) {
                     editingEnvId = env.id
@@ -118,7 +126,8 @@ struct EnvironmentListView: View {
                 editingEnvId = env.id
                 renameText = env.name
             }
-            Button("Edit") { sheetTarget = .environment(env.id) }
+            Button("Edit") { appState.environmentDetailId = env.id }
+            Button("Set as Active") { appState.selectedEnvironmentId = env.id }
             Divider()
             Button("Delete", role: .destructive) {
                 appState.environments.removeAll(where: { $0.id == env.id })
@@ -172,12 +181,19 @@ struct EnvironmentListView: View {
                 }
             }
         case .newEnvironment:
-            EnvironmentEditorView(environment: KoalaEnvironment(), isNew: true) { newEnv in
+            NewEnvironmentSheet { newEnv in
                 appState.environments.append(newEnv)
+                appState.environmentDetailId = newEnv.id  // auto-open in detail panel
                 appState.saveToDisk()
             }
         case .globalVariables:
             GlobalVariablesEditorSheet(items: $state.globalVariables)
+        case .vault:
+            if let pid = appState.activeProjectId {
+                VaultManagerSheet(projectId: pid)
+            } else {
+                Text("No active project").padding()
+            }
         }
     }
 }
@@ -200,7 +216,7 @@ private struct GlobalVariablesEditorSheet: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             Divider()
-            KeyValueEditorView(items: $items, showSecretToggle: true)
+            KeyValueEditorView(items: $items, showSecretToggle: true, showVaultToggle: true)
                 .padding(12)
             Spacer()
         }
